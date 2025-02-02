@@ -1,6 +1,12 @@
 #pragma once
 
+#include <boost/asio/read.hpp>
+#include <boost/asio/read_until.hpp>
+#include <boost/asio/write.hpp>
+#include <boost/asio/compose.hpp>
+#include "http_error.h"
 #include "http_message.h"
+#include "picohttpparser.h"
 
 namespace http
 {
@@ -99,7 +105,7 @@ namespace http
         enum {header, parse, body}  state{header};
 
         async_http_read_impl(AsyncReadStream& sock_, request& req_, std::string& buf_)
-        : sock{sock_}, req{req_} buf{buf_}
+        : sock{sock_}, req{req_}, buf{buf_}
         {
             buf.clear();
             req.clear();
@@ -122,17 +128,46 @@ namespace http
             // Parse
             else if (state == parse)
             {
-                auto res = parser.parse(req, nread, buf.data());
-                buf.erase(begin(buf), begin(buf) + res.bytes_consumed);
-                total_read += res.bytes_consumed;
+                const char* method{nullptr};
+                size_t      method_len{0};
+                const char* path{nullptr};
+                size_t      path_len{0};
+                int         version_minor{-1};
+                phr_header  headers[100];
+                size_t      headers_len{0};
+
+                int res = phr_parse_request(
+                    buf.c_str(),  nread, 
+                    &method,      &method_len, 
+                    &path,        &path_len,
+                    &version_minor,
+                    headers, &headers_len,
+                    0
+                );
 
                 // Header fail
-                if (res.type != request_parser::good)
+                if (res < 0)
                     self.complete(make_error_code(HTTP_READ_HEADER_FAIL), total_read);
 
                 // Header ok
-                else 
+                else
                 {
+                    buf.erase(begin(buf), begin(buf) + res);
+                    total_read += res;
+
+                    // Set fields
+                    req.method              = method;
+                    req.uri                 = path;
+                    req.http_version_major  = 1;
+                    req.http_version_minor  = version_minor;
+                    req.headers.resize(headers_len);
+                    for (int h = 0 ; h < headers_len ; ++h)
+                    {
+                        req.headers[h].name   = headers[h].name;
+                        req.headers[h].values = headers[h].value;
+                    }
+
+                    // Next state
                     state = body;
                     const auto it = req.find(field::content_length);
 
