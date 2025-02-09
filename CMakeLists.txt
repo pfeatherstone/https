@@ -4,17 +4,30 @@ project(Http)
 # Deps
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(Boost)
+include(fmtlib)
 find_package(OpenSSL REQUIRED)
 
 # Lib
 add_library(http 
+  src/http_error.cpp
   src/http_field.cpp
   src/http_message.cpp
   src/http_mime.cpp
-  src/http_status.cpp)
+  src/http_status.cpp
+  src/picohttpparser.c)
 
 target_link_libraries(http
   PUBLIC Boost::asio
   PUBLIC OpenSSL::SSL OpenSSL::Crypto)
 
 target_compile_features(http PUBLIC cxx_std_17)
+target_include_directories(http PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+
+# Example
+add_executable(example test/example.cpp)
+target_compile_features(example PUBLIC cxx_std_20)
+target_link_options(example PUBLIC $<$<CONFIG:Release>:-s>)
+target_link_libraries(example 
+  PUBLIC http
+  PUBLIC Boost::json
+  PUBLIC fmt::fmt)

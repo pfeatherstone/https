@@ -134,7 +134,7 @@ namespace http
                 size_t      path_len{0};
                 int         version_minor{-1};
                 phr_header  headers[100];
-                size_t      headers_len{0};
+                size_t      headers_len{100};
 
                 int res = phr_parse_request(
                     buf.c_str(),  nread, 
