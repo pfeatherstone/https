@@ -14,9 +14,10 @@ namespace http
         {
             switch(static_cast<http_error>(ev))
             {
-            case HTTP_READ_HEADER_FAIL: return "Error while parsing HTTP request headers";
-            case HTTP_READ_BODY_FAIL:   return "Error while reading HTTP body";
-            default:                    return "Unrecognised error";
+            case HTTP_READ_HEADER_FAIL:     return "Error while parsing HTTP request headers";
+            case HTTP_READ_BODY_FAIL:       return "Error while reading HTTP body";
+            case WS_ACCEPT_MISSING_SEQ_KEY: return "Missing seq-websocket-key in HTTP websocket upgrade request message";
+            default:                        return "Unrecognised error";
             }
         }
     };

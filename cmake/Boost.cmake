@@ -2,7 +2,7 @@ if(POLICY CMP0135)
    cmake_policy(SET CMP0135 OLD)
 endif()
 include(FetchContent)
-set(BOOST_INCLUDE_LIBRARIES asio json)
+set(BOOST_INCLUDE_LIBRARIES asio)
 set(BOOST_ENABLE_CMAKE ON)
 set(BOOST_ASIO_DISABLE_BOOST_COROUTINE ON)
 FetchContent_Declare(
