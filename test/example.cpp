@@ -206,13 +206,21 @@ void handle_request (
 
 struct websocket_impl : websocket
 {
-    tcp_socket sock;
+    struct txbuf {std::vector<char> buf; bool is_text;};
+
+    tcp_socket          sock;
+    std::vector<txbuf>  buffers;
 
     websocket_impl(tcp_socket sock_) : sock{std::move(sock_)} {}
 
     void write(const char* data, std::size_t ndata, bool is_text)
     {
-        // boost::asio::dispatch(sock.get_executor(), )
+        txbuf buf;
+        buf.buf.assign(data, data + ndata);
+        buf.is_text = is_text;
+        boost::asio::dispatch(sock.get_executor(), [this, buf = std::move(buf)] {
+            buffers.push_back(std::move(buf));
+        });
     }
 };
 
@@ -252,7 +260,13 @@ awaitable_strand<void> websocket_session (
                 handlers.on_data(state, buf_pay.data(), buf_pay.size(), false);
 
             // Check for writes
-
+            if (!state->buffers.empty())
+            {
+                auto txbuf = std::move(state->buffers[0]);
+                state->buffers.erase(begin(state->buffers));
+                opcode = txbuf.is_text ? http::WS_OPCODE_DATA_TEXT : http::WS_OPCODE_DATA_BINARY;
+                ret = co_await http::async_ws_write(state->sock, buf_tmp, txbuf.buf, opcode, false, deferred);
+            }
         }
     }
     catch(const std::exception& e)
