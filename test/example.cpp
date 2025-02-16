@@ -10,10 +10,15 @@
 #include <boost/asio/strand.hpp>
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/asio/signal_set.hpp>
-#include <boost/json/value.hpp>
-#include <boost/json/parse.hpp>
 #include <http_async.h>
 #include <http_mime.h>
+#include <http_base64.h>
+
+//----------------------------------------------------------------------------------------------------------------
+//----------------------------------------------------------------------------------------------------------------
+// Typedefs
+//----------------------------------------------------------------------------------------------------------------
+//----------------------------------------------------------------------------------------------------------------
 
 using boost::asio::detached;
 using boost::asio::deferred;
@@ -26,28 +31,78 @@ template<class T> using awaitable           = boost::asio::awaitable<T, boost::a
 template<class T> using awaitable_strand    = boost::asio::awaitable<T, boost::asio::strand<boost::asio::io_context::executor_type>>;
 namespace fs = std::filesystem;
 
-struct handler_return
+//----------------------------------------------------------------------------------------------------------------
+//----------------------------------------------------------------------------------------------------------------
+// Example API
+//----------------------------------------------------------------------------------------------------------------
+//----------------------------------------------------------------------------------------------------------------
+
+struct websocket
 {
-    bool success{false};
-    std::string response;
+    virtual void write(const char* data, std::size_t ndata, bool is_text) = 0;
 };
 
-using handler       = std::function<handler_return(const boost::json::value& jv)>;
-using handlers_t    = std::vector<std::pair<std::string_view, handler>>;
+using http_handler_t    = std::function<void(const http::request& req, http::response& reply)>;
+using http_handlers_t   = std::vector<std::pair<std::string_view, http_handler_t>>;
+using ws_onopen_t       = std::function<void(std::shared_ptr<websocket> sock)>;
+using ws_onclose_t      = std::function<void(std::shared_ptr<websocket> sock)>;
+using ws_ondata_t       = std::function<void(std::shared_ptr<websocket> sock, const char* data, std::size_t ndata, bool is_text)>;
+using ws_handlers_t     = struct{ws_onopen_t on_open; ws_onclose_t on_close; ws_ondata_t on_data;};
+
+struct api_options
+{
+    uint16_t            port{};
+    std::string_view    docroot;
+    std::string_view    username;
+    std::string_view    password;
+    http_handlers_t     http_handlers;
+    ws_handlers_t       ws_handlers;
+};
+
+//----------------------------------------------------------------------------------------------------------------
+//----------------------------------------------------------------------------------------------------------------
+// Helpers
+//----------------------------------------------------------------------------------------------------------------
+//----------------------------------------------------------------------------------------------------------------
+
+    constexpr std::string_view lskip(std::string_view str, std::string_view chrs)
+    {
+        auto pos = str.find(chrs);
+
+        if (pos != std::string_view::npos)
+            str = str.substr(pos + chrs.size());
+
+        return str;
+    }
+
+    constexpr auto split_once(std::string_view str, std::string_view chrs)
+    {
+        auto pos = str.find(chrs);
+
+        std::string_view first = str.substr(0, pos);
+        std::string_view second = str.substr(pos+chrs.size());
+
+        return std::make_pair(first, second);
+    }
+
+//----------------------------------------------------------------------------------------------------------------
+//----------------------------------------------------------------------------------------------------------------
+// HTTP handling
+//----------------------------------------------------------------------------------------------------------------
+//----------------------------------------------------------------------------------------------------------------
 
 void http_unauthorized (const http::request& req, http::response& resp, std::string msg)
 {
-    printf("[HTTP] Authorization request\n");
     resp.status = http::status_type::unauthorized;
     resp.add_header(http::field::www_authenticate,    "Basic realm=\"Access to the staging site\"");
     resp.add_header(http::field::cache_control,       "no-store");
     resp.content_str = std::move(msg);
 }
 
-void http_bad_request (const http::request& req, http::response& resp, std::string why)
+void http_bad_request (const http::request& req, http::response& resp, std::string_view why)
 {
     resp.status         = http::status_type::bad_request;
-    resp.content_str    = std::move(why);
+    resp.content_str    = why;
 }
 
 void http_not_found (const http::request& req, http::response& resp)
@@ -59,10 +114,10 @@ void http_not_found (const http::request& req, http::response& resp)
 void http_server_error (const http::request& req, http::response& resp, std::string what)
 {
     resp.status         = http::status_type::internal_server_error;
-    resp.content_str    = fmt::format("An error occured: `{}`", what); 
+    resp.content_str    = fmt::format("An error occured: {}", what); 
 }
 
-void http_file_data (const http::request& req, http::response& resp, std::string_view path, std::ifstream file)
+void http_file_data (const http::request& req, http::response& resp, std::string_view path, http::file_ptr file)
 {
     resp.status = http::status_type::ok;
     resp.add_header(http::field::content_type,    http::get_mime_type(path));
@@ -72,44 +127,32 @@ void http_file_data (const http::request& req, http::response& resp, std::string
     resp.content_file = std::move(file);
 }
 
-void http_json_data (const http::request& req, http::response& resp, handler_return data)
-{
-    resp.status = data.success ? http::status_type::ok : http::status_type::internal_server_error;
-    resp.add_header(http::field::content_type, data.success ? "application/json" : "text/plain");
-    resp.content_str = std::move(data.response);
+auto handle_authorization (const http::request& req, std::string_view username_exp, std::string_view passwd_exp)
+{       
+    auto field = req.find(http::field::authorization);
+    if (field == req.headers.end())
+        return std::make_pair(false, "Missing Authorization field");
+    
+    std::string_view  login_base64  = lskip(field->values, "Basic ");
+    const std::string login         = http::from_base64(login_base64);
+
+    const auto [user, passwd] = split_once(login, ":");
+
+    if (user.compare(username_exp) != 0 || passwd.compare(passwd_exp) != 0)
+        return std::make_pair(false, "Authentication username-password don't match expected");
+
+    return std::make_pair(true, "Authenticated!");
 }
-
-// auto handle_authorization (const request& req, std::string_view username_exp, std::string_view passwd_exp)
-// {       
-//     log::trace("HTTP", "Handling authorization response");
-    
-//     auto field = req.find(field::authorization);
-//     if (field == req.headers.end())
-//         return std::make_pair(false, "Missing Authorization field");
-    
-//     std::string_view  login_base64  = lskip(field->values, "Basic ");
-//     const std::string login         = from_base64(login_base64);
-
-//     const auto [user, passwd] = split_once(login, ":");
-
-//     if (user.compare(username_exp) != 0 || passwd.compare(passwd_exp) != 0)
-//         return std::make_pair(false, "Authentication username-password don't match expected");
-
-//     log::trace("HTTP", "Handling authorization response... Success");
-//     return std::make_pair(true, "Authenticated!");
-// }
 
 void handle_request (
     std::string_view        doc_root, 
-    std::string_view        username,
-    std::string_view        password,
-    const handlers_t&       handlers,
+    std::string_view        username_exp,
+    std::string_view        password_exp,
+    const http_handlers_t&  handlers,
     const http::request&    req, 
     http::response&         resp
 )
 {
-    // print_http_request(req);
-
     // Make sure we can handle the method
     if( req.method != "GET"  &&
         req.method != "POST" &&
@@ -117,26 +160,21 @@ void handle_request (
         return http_bad_request(req, resp, "Unknown HTTP-method");
 
     // Check the HTTP request is authorized
-    // auto auth_res = handle_authorization(req, username, password);
-    // if (!auth_res.first)
-    //     return http_unauthorized(req, resp, auth_res.second);
+    auto auth_res = handle_authorization(req, username_exp, password_exp);
+    if (!auth_res.first)
+        return http_unauthorized(req, resp, auth_res.second);
         
-    // Check handlers
-    for (const auto& [key, hdl] : handlers)
+    // Check handlers - catch exceptions in case json parsing or something else fails, in which case, send a "bad" response
+    try
     {
-        if (key == req.uri)
-        {
-            try {
-                boost::json::value req_jv;
-                if (!req.content.empty())
-                    req_jv = boost::json::parse(req.content);
-                auto ret = std::invoke(hdl, req_jv);
-                return http_json_data(req, resp, ret);
-            } catch (const std::exception& e) {
-                return http_bad_request(req, resp, fmt::format("Error parsing request body as JSON : `{}`", e.what()));
-            }
-            break;
-        }   
+        for (const auto& [key, hdl] : handlers)
+            if (key == req.uri)
+                return std::invoke(hdl, req, resp);
+    }
+    catch(const std::exception& e)
+    {
+        resp.clear();
+        return http_bad_request(req, resp, e.what());
     }
 
     // Request path must be absolute and not contain "..".
@@ -150,29 +188,90 @@ void handle_request (
     const std::string   path = fs::path(doc_root) / (uri.has_root_directory() ? uri.relative_path() : uri);
 
     // Attempt to open the file
-    std::ifstream file(path);
+    http::file_ptr file(fopen(path.c_str(), "r"));
 
     // Handle the case where the file doesn't exist
-    if(!file.is_open())
+    if(!file || ferror(file.get()) || feof(file.get()))
         return http_not_found(req, resp);
 
     // Respond to GET request
     return http_file_data(req, resp, path, std::move(file));
 }
 
+//----------------------------------------------------------------------------------------------------------------
+//----------------------------------------------------------------------------------------------------------------
+// WS session
+//----------------------------------------------------------------------------------------------------------------
+//----------------------------------------------------------------------------------------------------------------
+
+struct websocket_impl : websocket
+{
+    tcp_socket sock;
+
+    websocket_impl(tcp_socket sock_) : sock{std::move(sock_)} {}
+
+    void write(const char* data, std::size_t ndata, bool is_text)
+    {
+        // boost::asio::dispatch(sock.get_executor(), )
+    }
+};
+
 awaitable_strand<void> websocket_session (
-    tcp_socket sock
+    tcp_socket              sock,
+    http::request           req,
+    const ws_handlers_t&    handlers
 )
 {
-    
+    // Move into shared state
+    auto state = std::make_shared<websocket_impl>(std::move(sock));
+    std::vector<char> buf_tmp;
+    std::vector<char> buf_pay;
+
+    try 
+    {
+        // Handshake
+        size_t ret = co_await http::async_ws_accept(state->sock, req, deferred);
+        handlers.on_open(state);
+
+        for(;;)
+        {
+            // Read
+            http::websocket_opcode opcode = co_await http::async_ws_read(state->sock, buf_tmp, buf_pay, deferred);
+
+            if (opcode == http::WS_OPCODE_CONTINUATION)
+                break; // This shouldn't happen
+            else if (opcode == http::WS_OPCODE_CLOSE)
+                break; // Legit need to close
+            else if (opcode == http::WS_OPCODE_PONG)
+                continue; // Nothing to do
+            else if (opcode == http::WS_OPCODE_PING)
+                ret = co_await http::async_ws_write(state->sock, buf_tmp, buf_pay, http::WS_OPCODE_PONG, false, deferred);
+            else if (opcode == http::WS_OPCODE_DATA_TEXT)
+                handlers.on_data(state, buf_pay.data(), buf_pay.size(), true);
+            else if (opcode == http::WS_OPCODE_DATA_BINARY)
+                handlers.on_data(state, buf_pay.data(), buf_pay.size(), false);
+
+            // Check for writes
+
+        }
+    }
+    catch(const std::exception& e)
+    {
+        fprintf(stderr, "[WS session] %s\n", e.what());
+    }
+
+    handlers.on_close(state);
 }
+
+//----------------------------------------------------------------------------------------------------------------
+//----------------------------------------------------------------------------------------------------------------
+// HTTP session
+//----------------------------------------------------------------------------------------------------------------
+//----------------------------------------------------------------------------------------------------------------
 
 awaitable_strand<void> http_session (
     tcp_socket          sock, 
-    std::string_view    doc_root,
-    std::string_view    username,
-    std::string_view    password,
-    const handlers_t&   handlers
+    const api_options&  options
 )
 {
     try
@@ -189,13 +288,13 @@ awaitable_strand<void> http_session (
             // Manage websocket
             if (req.is_websocket_req())
             {
-                // std::make_shared<websocket_session>(std::move(sock), websockets)->run(std::move(req));
+                co_spawn(sock.get_executor(), websocket_session(std::move(sock), std::move(req), options.ws_handlers), detached);
                 break;
             }
 
             // Handle request
             resp.clear();
-            handle_request(doc_root, username, password, handlers, req, resp);
+            handle_request(options.docroot, options.username, options.password, options.http_handlers, req, resp);
 
             // Write response
             const bool keep_alive = req.keep_alive();
@@ -213,26 +312,34 @@ awaitable_strand<void> http_session (
     }
     catch(const std::exception& e)
     {
-        printf("[session] %s\n", e.what());
+        fprintf(stderr, "[HTTP session] %s\n", e.what());
     }
 }
 
+//----------------------------------------------------------------------------------------------------------------
+//----------------------------------------------------------------------------------------------------------------
+// Listener
+//----------------------------------------------------------------------------------------------------------------
+//----------------------------------------------------------------------------------------------------------------
+
 awaitable<void> listen (
     boost::asio::io_context&    ioc, 
-    uint16_t                    port, 
-    std::string_view            doc_root,
-    std::string_view            username,
-    std::string_view            password,
-    const handlers_t&           handlers
+    const api_options&          options
 )
 {
-    tcp_acceptor acceptor(ioc, {tcp::v4(), port});
+    tcp_acceptor acceptor(ioc, {tcp::v4(), options.port});
     for (;;)
     {
         tcp_socket sock = co_await acceptor.async_accept(make_strand(ioc), deferred);
-        co_spawn(sock.get_executor(), http_session(std::move(sock), doc_root, username, password, handlers), detached);
+        co_spawn(sock.get_executor(), http_session(std::move(sock), options), detached);
     }
 }
+
+//----------------------------------------------------------------------------------------------------------------
+//----------------------------------------------------------------------------------------------------------------
+// Example webserver
+//----------------------------------------------------------------------------------------------------------------
+//----------------------------------------------------------------------------------------------------------------
 
 int main()
 {
@@ -242,21 +349,32 @@ int main()
         boost::asio::signal_set signals(ioc, SIGINT, SIGTERM);
         signals.async_wait([&](auto, auto){ ioc.stop(); });
 
-        uint16_t    port        = 8000;
-        std::string doc_root    = "./web";
-        std::string username    = "Tommy";
-        std::string password    = "Aldridge";
+        api_options options = {
+            .port       = 8000,
+            .docroot    = "./web",
+            .username   = "Tommy",
+            .password   = "Aldridge",
 
-        handlers_t handlers = {
-            {"/status", [&](const boost::json::value& jv) -> handler_return {
-                handler_return ret;
-                ret.success = true;
-                ret.response = "ok from here";
-                return ret;
-            }}
+            .http_handlers = {
+                {"/status", [&](const http::request& req, http::response& reply)
+                {
+                    reply.status = http::status_type::ok;
+                    reply.content_str = "All good here";
+                    reply.add_header(http::field::content_type, "text/plain");
+                }}
+            },
+
+            .ws_handlers = {
+                .on_open  = [](auto ws) {printf("Websocket connection open\n");},
+                .on_close = [](auto ws) {printf("Websocket closed\n");},
+                .on_data  = [](auto ws, const char* data, size_t ndata, bool is_text) {
+                    printf("Websocket received %zu bytes. Echoing back\n", ndata);
+                    ws->write(data, ndata, is_text);
+                }
+            }
         };
 
-        co_spawn(ioc, listen(ioc, port, doc_root, username, password, handlers), detached);
+        co_spawn(ioc, listen(ioc, options), detached);
 
         ioc.run();
     }

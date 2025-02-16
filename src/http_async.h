@@ -1,50 +1,22 @@
 #pragma once
 
+#include <boost/asio/bind_executor.hpp>
+#include <boost/asio/compose.hpp>
 #include <boost/asio/read.hpp>
 #include <boost/asio/read_until.hpp>
 #include <boost/asio/write.hpp>
-#include <boost/asio/compose.hpp>
+#include <openssl/evp.h>
 #include "http_error.h"
+#include "http_base64.h"
 #include "http_message.h"
-#include "picohttpparser.h"
 
 namespace http
 {
 
 //----------------------------------------------------------------------------------------------------------------
 
-    template<class AsyncReadStream, class CompletionToken>
-    auto async_http_read (
-        AsyncReadStream&    sock,
-        request&            req,
-        std::string&        buf,
-        CompletionToken&&   token
-    );
-
-//----------------------------------------------------------------------------------------------------------------
-
-    template<class AsyncWriteStream, class CompletionToken>
-    auto async_write_file (
-        AsyncWriteStream&   sock,
-        std::istream&       file,
-        std::size_t         chunk_size,
-        CompletionToken&&   token
-    );
-
-//----------------------------------------------------------------------------------------------------------------
-
-    template<class AsyncWriteStream, class CompletionToken>
-    auto async_http_write (
-        AsyncWriteStream&   sock,
-        response&           resp,
-        CompletionToken&&   token
-    );
-
-//----------------------------------------------------------------------------------------------------------------
-
     enum websocket_opcode : int
     {
-        WS_OPCODE_ERROR         = -1,
         WS_OPCODE_CONTINUATION  = 0,
         WS_OPCODE_DATA_TEXT     = 1,
         WS_OPCODE_DATA_BINARY   = 2,
@@ -65,6 +37,44 @@ namespace http
     };
 
     static_assert(sizeof(websocket_frame) == 2, "bad");
+
+//----------------------------------------------------------------------------------------------------------------
+
+    template<class AsyncReadStream, class CompletionToken>
+    auto async_http_read (
+        AsyncReadStream&    sock,
+        request&            req,
+        std::string&        buf,
+        CompletionToken&&   token
+    );
+
+//----------------------------------------------------------------------------------------------------------------
+
+    template<class AsyncWriteStream, class CompletionToken>
+    auto async_write_file (
+        AsyncWriteStream&   sock,
+        FILE*               file,
+        std::size_t         chunk_size,
+        CompletionToken&&   token
+    );
+
+//----------------------------------------------------------------------------------------------------------------
+
+    template<class AsyncWriteStream, class CompletionToken>
+    auto async_http_write (
+        AsyncWriteStream&   sock,
+        response&           resp,
+        CompletionToken&&   token
+    );
+
+//----------------------------------------------------------------------------------------------------------------
+
+    template<class AsyncWriteStream, class CompletionToken>
+    auto async_ws_accept (
+        AsyncWriteStream&   sock,
+        const request&      req,
+        CompletionToken&&   token
+    );
 
 //----------------------------------------------------------------------------------------------------------------
 
@@ -128,47 +138,19 @@ namespace http
             // Parse
             else if (state == parse)
             {
-                const char* method{nullptr};
-                size_t      method_len{0};
-                const char* path{nullptr};
-                size_t      path_len{0};
-                int         version_minor{-1};
-                phr_header  headers[100];
-                size_t      headers_len{100};
-
-                int res = phr_parse_request(
-                    buf.c_str(),  nread, 
-                    &method,      &method_len, 
-                    &path,        &path_len,
-                    &version_minor,
-                    headers, &headers_len,
-                    0
-                );
+                int ret = parse_request(req, nread, buf.data());
 
                 // Header fail
-                if (res < 0)
+                if (ret < 0)
                     self.complete(make_error_code(HTTP_READ_HEADER_FAIL), total_read);
 
                 // Header ok
                 else
                 {
-                    buf.erase(begin(buf), begin(buf) + res);
-                    total_read += res;
-
-                    // Set fields
-                    req.method              = method;
-                    req.uri                 = path;
-                    req.http_version_major  = 1;
-                    req.http_version_minor  = version_minor;
-                    req.headers.resize(headers_len);
-                    for (int h = 0 ; h < headers_len ; ++h)
-                    {
-                        req.headers[h].name   = headers[h].name;
-                        req.headers[h].values = headers[h].value;
-                    }
-
-                    // Next state
                     state = body;
+                    buf.erase(begin(buf), begin(buf) + ret);
+                    total_read += ret;
+
                     const auto it = req.find(field::content_length);
 
                     // Read body
@@ -236,17 +218,17 @@ namespace http
     struct async_write_file_impl
     {
         AsyncWriteStream&   sock;
-        std::istream&       file;
+        FILE*               file;
         std::vector<char>   buf;
         size_t              size{};
         size_t              offset{0};
 
-        async_write_file_impl(AsyncWriteStream& sock_, std::istream& file_, std::size_t chunksize_)
+        async_write_file_impl(AsyncWriteStream& sock_, FILE* file_, std::size_t chunksize_)
         : sock{sock_}, file{file_}, buf(chunksize_)
         {
-            file.seekg(0, std::ios::end);
-            size = file.tellg();
-            file.seekg(0, std::ios::beg);
+            fseek(file, 0, SEEK_END);
+            size = ftell(file);
+            fseek(file, 0, SEEK_SET);
         }
 
         template<class Self>
@@ -261,14 +243,13 @@ namespace http
                 self.complete(boost::system::error_code{}, offset);
 
             // Bad file
-            else if (!file || file.eof())
+            else if (ferror(file) || feof(file))
                 self.complete(boost::asio::error::make_error_code(boost::asio::error::broken_pipe), offset);
 
             // Keep writing
             else 
             {
-                file.read(buf.data(), buf.size());
-                const size_t nread = file.gcount();
+                const size_t nread = fread(buf.data(), 1, buf.size(), file);
                 offset += nread;
                 boost::asio::async_write(sock, boost::asio::buffer(buf, nread), std::move(self));
             }
@@ -278,7 +259,7 @@ namespace http
     template<class AsyncWriteStream, class CompletionToken>
     inline auto async_write_file (
         AsyncWriteStream&   sock,
-        std::istream&       file,
+        FILE*               file,
         std::size_t         chunk_size,
         CompletionToken&&   token
     )
@@ -324,8 +305,8 @@ namespace http
                     boost::asio::async_write(sock, boost::asio::buffer(resp.content_str), std::move(self));
 
                 // Write file
-                else if (resp.content_file.is_open())
-                    async_write_file(sock, resp.content_file, 1024, std::move(self));
+                else if (resp.content_file)
+                    async_write_file(sock, resp.content_file.get(), 1024, std::move(self));
             
                 // Done
                 else
@@ -352,6 +333,70 @@ namespace http
             async_http_write_impl<AsyncWriteStream>{sock, resp},
             token, sock
         );
+    }
+
+//----------------------------------------------------------------------------------------------------------------
+
+    template<class AsyncWriteStream, class CompletionToken>
+    inline auto async_ws_accept (
+        AsyncWriteStream&   sock,
+        const request&      req,
+        CompletionToken&&   token
+    )
+    {
+        auto initiation = [] (
+            auto&&                      completion_handler,
+            AsyncWriteStream&           sock,
+            const request&              req,
+            std::unique_ptr<response>   reply
+        ) 
+        {
+            // Get executor
+            auto executor = boost::asio::get_associated_executor(completion_handler, sock.get_executor());
+
+            // Get key
+            auto sec_ws_key = req.find(field::sec_websocket_key);
+
+            // Missing key
+            if (sec_ws_key == end(req.headers))
+            {
+                boost::asio::post(
+                    boost::asio::bind_executor(executor,
+                        std::bind(std::forward<decltype(completion_handler)>(
+                            completion_handler), make_error_code(WS_ACCEPT_MISSING_SEQ_KEY), 0)));
+            }
+
+            // Got key
+            else
+            {
+                // Sec-WebSocket-Accept
+                constexpr std::string_view magic = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+                char            hash[EVP_MAX_MD_SIZE];
+                unsigned int    hash_len{0};
+                EVP_MD_CTX *mdctx = EVP_MD_CTX_new();
+                EVP_DigestInit_ex(mdctx, EVP_sha1(), NULL);
+                EVP_DigestUpdate(mdctx, sec_ws_key->values.data(), sec_ws_key->values.size());
+                EVP_DigestUpdate(mdctx, magic.data(), magic.size());
+                EVP_DigestFinal_ex(mdctx, (unsigned char*)hash, &hash_len);
+                EVP_MD_CTX_free(mdctx);
+
+                // Send response
+                reply->status = status_type::switching_protocols;
+                reply->add_header(field::upgrade,       "websocket");
+                reply->add_header(field::connection,    "Upgrade");
+                reply->add_header(field::sec_websocket_accept, to_base64(std::string_view{hash, hash_len}));
+                reply->prepare(true, req.http_version_major, req.http_version_minor);
+                async_http_write(sock, *reply, std::forward<decltype(completion_handler)>(completion_handler));
+            }
+        };
+
+        return boost::asio::async_initiate<CompletionToken, void(boost::system::error_code, std::size_t)>(
+            initiation, 
+            token, 
+            std::ref(sock), 
+            std::ref(req),
+            std::make_unique<response>()
+        );        
     }
 
 //----------------------------------------------------------------------------------------------------------------
@@ -384,7 +429,7 @@ namespace http
         {
             // Error
             if (error)
-                self.complete(error, WS_OPCODE_ERROR);
+                self.complete(error, {});
 
             // Header 0 read
             else if (state == header0_read)
@@ -513,7 +558,7 @@ namespace http
 
 //----------------------------------------------------------------------------------------------------------------
 
-    template<class AsyncWriteStream, class CompletionToken, class Byte>
+    template<class AsyncWriteStream, class Byte, class CompletionToken>
     inline auto async_ws_write (
         AsyncWriteStream&   sock,
         std::vector<char>&  buf_tmp,
