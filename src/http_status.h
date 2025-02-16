@@ -1,7 +1,5 @@
 #pragma once
 
-#include <string_view>
-
 namespace http
 {
     enum status_type : unsigned
@@ -89,5 +87,5 @@ namespace http
         tls_handshake_failure               = 1015
     };
 
-    std::string_view status_string(const status_type v);
+    const char* status_string(const status_type v);
 }

@@ -2,7 +2,7 @@
 
 namespace http
 {
-    std::string_view status_string(const status_type v)
+    const char* status_string(const status_type v)
     {
         switch(v)
         {
