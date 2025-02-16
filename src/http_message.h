@@ -1,15 +1,19 @@
 #pragma once
 
+#include <cstdio>
 #include <string>
-#include <string_view>
 #include <vector>
-#include <fstream>
 #include <boost/asio/buffer.hpp>
 #include "http_field.h"
 #include "http_status.h"
 
 namespace http
 {
+
+//----------------------------------------------------------------------------------------------------------------
+
+    struct file_deleter {void operator()(FILE* ptr) {fclose(ptr);}};
+    using file_ptr = std::unique_ptr<FILE, file_deleter>;
 
 //----------------------------------------------------------------------------------------------------------------
 
@@ -44,7 +48,7 @@ namespace http
         status_type         status{unknown};
         std::vector<header> headers;
         std::string         content_str;
-        std::ifstream       content_file;
+        file_ptr            content_file;
 
         std::string                             status_buf;
         std::vector<boost::asio::const_buffer>  buffers;
@@ -52,9 +56,12 @@ namespace http
         void add_header(field f, std::string_view value);
         auto find(field f)       -> std::vector<header>::iterator;
         auto find(field f) const -> std::vector<header>::const_iterator;
-        bool contains(field f) const;
         void prepare(bool keep_alive, int http_major, int http_minor);
     };
+
+//----------------------------------------------------------------------------------------------------------------
+
+    int parse_request(request& req, int ndata, const char* data);
 
 //----------------------------------------------------------------------------------------------------------------
 
