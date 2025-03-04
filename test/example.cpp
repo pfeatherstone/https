@@ -173,7 +173,6 @@ void handle_request (
     }
     catch(const std::exception& e)
     {
-        resp.clear();
         return http_bad_request(req, resp, e.what());
     }
 
@@ -244,7 +243,7 @@ awaitable_strand<void> websocket_session (
         for(;;)
         {
             // Read
-            http::websocket_opcode opcode = co_await http::async_ws_read(state->sock, buf_tmp, buf_pay, deferred);
+            http::websocket_opcode opcode = co_await http::async_ws_read(state->sock, buf_pay, deferred);
 
             if (opcode == http::WS_OPCODE_CONTINUATION)
                 break; // This shouldn't happen

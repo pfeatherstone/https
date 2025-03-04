@@ -3,7 +3,6 @@
 #include <cstdint>
 #include <cstring>
 #include <stdexcept>
-
 #include "http_base64.h"
 
 namespace http {

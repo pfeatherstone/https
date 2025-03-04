@@ -72,7 +72,7 @@ namespace http
     template<class AsyncWriteStream, class CompletionToken>
     auto async_ws_accept (
         AsyncWriteStream&   sock,
-        const request&      req,
+        request             req,
         CompletionToken&&   token
     );
 
@@ -81,8 +81,7 @@ namespace http
     template<class AsyncReadStream, class CompletionToken>
     auto async_ws_read (
         AsyncReadStream&    sock,
-        std::vector<char>&  buf_tmp,
-        std::vector<char>&  buf_pay,
+        std::vector<char>&  buf,
         CompletionToken&&   token
     );
 
@@ -337,66 +336,87 @@ namespace http
 
 //----------------------------------------------------------------------------------------------------------------
 
+    template<class AsyncWriteStream>
+    struct async_ws_accept_impl
+    {
+        AsyncWriteStream&           sock;
+        request                     req;
+        std::unique_ptr<response>   reply;
+        enum {starting, writing}    state{starting};
+
+        async_ws_accept_impl (
+            AsyncWriteStream&   sock_, 
+            request             req_
+        ) : sock{sock_}, 
+            req{std::move(req_)},
+            reply{std::make_unique<response>()} 
+        {
+        }
+
+        template<class Self>
+        void operator()(Self& self, boost::system::error_code error = {}, std::size_t ntransferred = 0)
+        {
+            // Error
+            if (error)
+                self.complete(error, ntransferred);
+
+            // Build reply
+            if (state == starting)
+            {
+                state = writing;
+
+                // Get key
+                auto sec_ws_key = req.find(field::sec_websocket_key);
+
+                // Missing key
+                if (sec_ws_key == end(req.headers))
+                {
+                    self.complete(make_error_code(WS_ACCEPT_MISSING_SEQ_KEY), 0);
+                }
+
+                // Got key
+                else
+                {
+                    // Sec-WebSocket-Accept
+                    constexpr std::string_view magic = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+                    char            hash[EVP_MAX_MD_SIZE];
+                    unsigned int    hash_len{0};
+                    EVP_MD_CTX *mdctx = EVP_MD_CTX_new();
+                    EVP_DigestInit_ex(mdctx, EVP_sha1(), NULL);
+                    EVP_DigestUpdate(mdctx, sec_ws_key->values.data(), sec_ws_key->values.size());
+                    EVP_DigestUpdate(mdctx, magic.data(), magic.size());
+                    EVP_DigestFinal_ex(mdctx, (unsigned char*)hash, &hash_len);
+                    EVP_MD_CTX_free(mdctx);
+
+                    // Send response
+                    reply->status = status_type::switching_protocols;
+                    reply->add_header(field::upgrade,       "websocket");
+                    reply->add_header(field::connection,    "Upgrade");
+                    reply->add_header(field::sec_websocket_accept, to_base64(std::string_view{hash, hash_len}));
+                    reply->prepare(true, req.http_version_major, req.http_version_minor);
+                    async_http_write(sock, *reply, std::move(self));
+                }
+            }
+
+            // Response sent - complete
+            else if (state == writing)
+            {
+                self.complete({}, ntransferred);
+            }
+        }
+    };
+
     template<class AsyncWriteStream, class CompletionToken>
     inline auto async_ws_accept (
         AsyncWriteStream&   sock,
-        const request&      req,
+        request             req,
         CompletionToken&&   token
     )
     {
-        auto initiation = [] (
-            auto&&                      completion_handler,
-            AsyncWriteStream&           sock,
-            const request&              req,
-            std::unique_ptr<response>   reply
-        ) 
-        {
-            // Get executor
-            auto executor = boost::asio::get_associated_executor(completion_handler, sock.get_executor());
-
-            // Get key
-            auto sec_ws_key = req.find(field::sec_websocket_key);
-
-            // Missing key
-            if (sec_ws_key == end(req.headers))
-            {
-                boost::asio::post(
-                    boost::asio::bind_executor(executor,
-                        std::bind(std::forward<decltype(completion_handler)>(
-                            completion_handler), make_error_code(WS_ACCEPT_MISSING_SEQ_KEY), 0)));
-            }
-
-            // Got key
-            else
-            {
-                // Sec-WebSocket-Accept
-                constexpr std::string_view magic = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
-                char            hash[EVP_MAX_MD_SIZE];
-                unsigned int    hash_len{0};
-                EVP_MD_CTX *mdctx = EVP_MD_CTX_new();
-                EVP_DigestInit_ex(mdctx, EVP_sha1(), NULL);
-                EVP_DigestUpdate(mdctx, sec_ws_key->values.data(), sec_ws_key->values.size());
-                EVP_DigestUpdate(mdctx, magic.data(), magic.size());
-                EVP_DigestFinal_ex(mdctx, (unsigned char*)hash, &hash_len);
-                EVP_MD_CTX_free(mdctx);
-
-                // Send response
-                reply->status = status_type::switching_protocols;
-                reply->add_header(field::upgrade,       "websocket");
-                reply->add_header(field::connection,    "Upgrade");
-                reply->add_header(field::sec_websocket_accept, to_base64(std::string_view{hash, hash_len}));
-                reply->prepare(true, req.http_version_major, req.http_version_minor);
-                async_http_write(sock, *reply, std::forward<decltype(completion_handler)>(completion_handler));
-            }
-        };
-
-        return boost::asio::async_initiate<CompletionToken, void(boost::system::error_code, std::size_t)>(
-            initiation, 
-            token, 
-            std::ref(sock), 
-            std::ref(req),
-            std::make_unique<response>()
-        );        
+        return boost::asio::async_compose<CompletionToken, void(boost::system::error_code, std::size_t)> (
+            async_ws_accept_impl{sock, std::move(req)},
+            token, sock
+        );     
     }
 
 //----------------------------------------------------------------------------------------------------------------
@@ -405,8 +425,8 @@ namespace http
     struct async_ws_read_impl
     {
         AsyncReadStream&    sock;
-        std::vector<char>&  buf_tmp;
-        std::vector<char>&  buf_pay;
+        std::vector<char>&  buf;
+        size_t              offset{0};
         websocket_opcode    opcode{WS_OPCODE_CONTINUATION};
         bool                is_masked{false};
         bool                is_last{false};
@@ -417,11 +437,10 @@ namespace http
               header1_parse,
               body} state{header0_read};
     
-        async_ws_read_impl(AsyncReadStream& sock_, std::vector<char>& buf_tmp_, std::vector<char>& buf_pay_)
-        : sock{sock_}, buf_tmp{buf_tmp_}, buf_pay{buf_pay_}
+        async_ws_read_impl(AsyncReadStream& sock_, std::vector<char>& buf_)
+        : sock{sock_}, buf{buf_}
         {
-            buf_tmp.clear();
-            buf_pay.clear();
+            buf.clear();
         }
 
         template<class Self>
@@ -435,8 +454,8 @@ namespace http
             else if (state == header0_read)
             {
                 state = header0_parse;
-                buf_tmp.resize(sizeof(websocket_frame));
-                boost::asio::async_read(sock, boost::asio::buffer(buf_tmp), std::move(self)); 
+                buf.resize(offset + sizeof(websocket_frame));
+                boost::asio::async_read(sock, boost::asio::buffer(&buf[offset], sizeof(websocket_frame)), std::move(self)); 
             }
 
             // Header 0 parse
@@ -444,7 +463,8 @@ namespace http
             {
                 assert(ntransferred == sizeof(websocket_frame));
                 websocket_frame hdr;
-                memcpy(&hdr, buf_tmp.data(), sizeof(websocket_frame));
+                memcpy(&hdr, &buf[offset], sizeof(websocket_frame));
+                buf.erase(begin(buf) + offset, begin(buf) + offset + sizeof(websocket_frame));
 
                 // Update state
                 is_masked = hdr.masked;
@@ -466,21 +486,21 @@ namespace http
                 if (nextsize > 0)
                 {
                     state = header1_parse;
-                    buf_tmp.resize(nextsize);
-                    boost::asio::async_read(sock, boost::asio::buffer(buf_tmp), std::move(self)); 
+                    buf.resize(offset + nextsize);
+                    boost::asio::async_read(sock, boost::asio::buffer(&buf[offset], nextsize), std::move(self)); 
                 }
                 else if (nextsize == 0)
                 {
                     state = body;
-                    buf_tmp.resize(paylen);
-                    boost::asio::async_read(sock, boost::asio::buffer(buf_tmp), std::move(self));
+                    buf.resize(offset + paylen);
+                    boost::asio::async_read(sock, boost::asio::buffer(&buf[offset], paylen), std::move(self));
                 }
             }
 
             // Header 2 parse
             else if (state == header1_parse)
             {
-                assert(ntransferred == buf_tmp.size());
+                assert(ntransferred == (buf.size()-offset));
 
                 size_t off{0};
 
@@ -488,7 +508,7 @@ namespace http
                 if (paylen == 126)
                 {
                     uint16_t len{0};
-                    memcpy(&len, &buf_tmp[off], 2);
+                    memcpy(&len, &buf[offset+off], 2);
                     paylen = be16toh(len);
                     off += 2;
                 }
@@ -497,35 +517,42 @@ namespace http
                 else if (paylen == 127)
                 {
                     uint64_t len{0};
-                    memcpy(&len, &buf_tmp[off], 8);
+                    memcpy(&len, &buf[offset+off], 8);
                     paylen = be64toh(len);
                     off += 8;
                 }
 
                 // Read mask
                 if (is_masked)
-                    memcpy(mask_key, &buf_tmp[off], 4);
+                {
+                    memcpy(mask_key, &buf[offset+off], 4);
+                    off += 4;
+                }
+                
+                // Remove header
+                buf.erase(begin(buf) + offset, begin(buf) + offset + off);
+                assert(buf.size() == offset);
 
                 // State transition
                 state = body;
-                buf_tmp.resize(paylen);
-                boost::asio::async_read(sock, boost::asio::buffer(buf_tmp), std::move(self));
+                buf.resize(offset + paylen);
+                boost::asio::async_read(sock, boost::asio::buffer(&buf[offset], paylen), std::move(self));
             }
 
             // Body
             else if (state == body)
             {
-                assert(ntransferred == buf_tmp.size());
+                assert(ntransferred == (buf.size()-offset));
 
                 // Un-mask if necessary
                 if (is_masked)
                 {
-                    for (size_t i = 0 ; i < buf_tmp.size() ; ++i)
-                        buf_tmp[i] ^= mask_key[i%4];
+                    for (size_t i = offset ; i < buf.size() ; ++i)
+                        buf[i] ^= mask_key[i%4];
                 }
 
-                // Append data
-                buf_pay.insert(end(buf_pay), begin(buf_tmp), end(buf_tmp));
+                // Move offset forward
+                offset += ntransferred;
 
                 // Check if this is the end
                 if (is_last)
@@ -535,8 +562,8 @@ namespace http
                 else
                 {
                     state = header0_parse;
-                    buf_tmp.resize(sizeof(websocket_frame));
-                    boost::asio::async_read(sock, boost::asio::buffer(buf_tmp), std::move(self)); 
+                    buf.resize(offset + sizeof(websocket_frame));
+                    boost::asio::async_read(sock, boost::asio::buffer(&buf[offset], sizeof(websocket_frame)), std::move(self)); 
                 }
             }
         }
@@ -545,13 +572,12 @@ namespace http
     template<class AsyncReadStream, class CompletionToken>
     inline auto async_ws_read (
         AsyncReadStream&    sock,
-        std::vector<char>&  buf_tmp,
-        std::vector<char>&  buf_pay,
+        std::vector<char>&  buf,
         CompletionToken&&   token
     )
     {
         return boost::asio::async_compose<CompletionToken, void(boost::system::error_code, websocket_opcode)> (
-            async_ws_read_impl{sock, buf_tmp, buf_pay},
+            async_ws_read_impl{sock, buf},
             token, sock
         );
     }
@@ -571,7 +597,8 @@ namespace http
         static_assert(sizeof(Byte) == 1, "must be byte type");
 
         // Header
-        websocket_frame hdr;
+        websocket_frame hdr{};
+        memset(&hdr, 0, sizeof(websocket_frame));
         size_t hdr_len = sizeof(websocket_frame);
 
         hdr.fin     = 1;
