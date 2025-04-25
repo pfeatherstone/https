@@ -5,6 +5,7 @@ project(Http)
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(Boost)
 include(fmtlib)
+find_package(Threads REQUIRED)
 find_package(OpenSSL REQUIRED)
 
 # Lib
@@ -23,7 +24,9 @@ target_include_directories(http PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 # Example
 add_executable(example test/example.cpp)
 target_compile_features(example PUBLIC cxx_std_20)
+target_compile_options(example PRIVATE -fcoroutines)
 target_link_options(example PUBLIC $<$<CONFIG:Release>:-s>)
 target_link_libraries(example 
+  PUBLIC Threads::Threads
   PUBLIC http
   PUBLIC fmt::fmt)
