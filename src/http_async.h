@@ -61,7 +61,6 @@ namespace http
     auto async_ws_accept (
         AsyncWriteStream&   sock,
         request             req,
-        request             req,
         CompletionToken&&   token
     );
 
@@ -366,8 +365,6 @@ namespace http
             {
                 state = writing;
 
-                // Get key
-                auto sec_ws_key = req.find(field::sec_websocket_key);
                 // Get key
                 auto sec_ws_key = req.find(field::sec_websocket_key);
 
