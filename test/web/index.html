@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+        <meta http-equiv="Pragma" content="no-cache" />
+        <meta http-equiv="Expires" content="0" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <script src="deps/angular.min.js"></script>
+        <script src="deps/ui-bootstrap-tpls-2.5.0.min.js"></script>
+        <link rel="stylesheet" href="deps/bootstrap-3.3.7-dist/css/bootstrap.min.css">
+        <script src="main.js"></script>
+    </head>
+    <body>
+        <div class="container-fluid" ng-app="testApp" ng-controller="testCtrl">
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="panel panel-default panel-primary">
+                        <div class="panel-heading">HTTP requests</div>
+                        <div>{{ httpmessage }}</div>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="panel panel-default panel-primary">
+                        <div class="panel-heading">Websocket messages</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </body>
+</html> 

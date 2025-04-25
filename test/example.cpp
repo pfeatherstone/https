@@ -1,17 +1,18 @@
 #include <string>
 #include <string_view>
 #include <vector>
+#include <fstream>
 #include <filesystem>
 #include <fmt/format.h>
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/detached.hpp>
 #include <boost/asio/deferred.hpp>
+#include <boost/asio/dispatch.hpp>
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/strand.hpp>
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/asio/signal_set.hpp>
 #include <http_async.h>
-#include <http_mime.h>
 #include <http_base64.h>
 
 //----------------------------------------------------------------------------------------------------------------
@@ -24,12 +25,32 @@ using boost::asio::detached;
 using boost::asio::deferred;
 using boost::asio::ip::tcp;
 using boost::asio::make_strand;
-using tcp_acceptor  = boost::asio::basic_socket_acceptor<tcp, boost::asio::io_context::executor_type>;
-using tcp_socket    = boost::asio::basic_stream_socket<tcp,   boost::asio::strand<boost::asio::io_context::executor_type>>;
+using tcp_acceptor      = boost::asio::basic_socket_acceptor<tcp, boost::asio::io_context::executor_type>;
+using tcp_socket        = boost::asio::basic_stream_socket<tcp,   boost::asio::strand<boost::asio::io_context::executor_type>>;
 // using tls_socket    = boost::asio::ssl::stream<tcp_socket>;
-template<class T> using awaitable           = boost::asio::awaitable<T, boost::asio::io_context::executor_type>;
-template<class T> using awaitable_strand    = boost::asio::awaitable<T, boost::asio::strand<boost::asio::io_context::executor_type>>;
+using awaitable         = boost::asio::awaitable<void, boost::asio::io_context::executor_type>;
+using awaitable_strand  = boost::asio::awaitable<void, boost::asio::strand<boost::asio::io_context::executor_type>>;
 namespace fs = std::filesystem;
+
+//----------------------------------------------------------------------------------------------------------------
+//----------------------------------------------------------------------------------------------------------------
+// Example Data
+//----------------------------------------------------------------------------------------------------------------
+//----------------------------------------------------------------------------------------------------------------
+
+std::string read_next(std::ifstream& fin, const size_t ncharacters)
+{
+    if (fin.eof())
+    {
+        fin.clear();
+        fin.seekg(0);
+    }
+
+    std::string msg(ncharacters, '\0');
+    fin.read(&msg[0], msg.size());
+    msg.resize(fin.gcount());
+    return msg;   
+}
 
 //----------------------------------------------------------------------------------------------------------------
 //----------------------------------------------------------------------------------------------------------------
@@ -39,7 +60,7 @@ namespace fs = std::filesystem;
 
 struct websocket
 {
-    virtual void write(const char* data, std::size_t ndata, bool is_text) = 0;
+    virtual void send(const char* data, std::size_t ndata, bool is_text) = 0;
 };
 
 using http_handler_t    = std::function<void(const http::request& req, http::response& reply)>;
@@ -130,10 +151,10 @@ void http_file_data (const http::request& req, http::response& resp, std::string
 auto handle_authorization (const http::request& req, std::string_view username_exp, std::string_view passwd_exp)
 {       
     auto field = req.find(http::field::authorization);
-    if (field == req.headers.end())
+    if (field == end(req.headers))
         return std::make_pair(false, "Missing Authorization field");
     
-    std::string_view  login_base64  = lskip(field->values, "Basic ");
+    std::string_view  login_base64  = lskip(field->value, "Basic ");
     const std::string login         = http::from_base64(login_base64);
 
     const auto [user, passwd] = split_once(login, ":");
@@ -173,7 +194,6 @@ void handle_request (
     }
     catch(const std::exception& e)
     {
-        resp.clear();
         return http_bad_request(req, resp, e.what());
     }
 
@@ -204,27 +224,64 @@ void handle_request (
 //----------------------------------------------------------------------------------------------------------------
 //----------------------------------------------------------------------------------------------------------------
 
-struct websocket_impl : websocket
+struct websocket_impl : websocket, std::enable_shared_from_this<websocket_impl>
 {
-    struct txbuf {std::vector<char> buf; bool is_text;};
+    struct txbuf {std::vector<char> data; http::websocket_opcode code;};
 
     tcp_socket          sock;
-    std::vector<txbuf>  buffers;
+    std::vector<txbuf>  buf_write_queue;
 
     websocket_impl(tcp_socket sock_) : sock{std::move(sock_)} {}
 
-    void write(const char* data, std::size_t ndata, bool is_text)
-    {
-        txbuf buf;
-        buf.buf.assign(data, data + ndata);
-        buf.is_text = is_text;
-        boost::asio::dispatch(sock.get_executor(), [this, buf = std::move(buf)] {
-            buffers.push_back(std::move(buf));
-        });
-    }
+    void send(const char* data, std::size_t ndata, bool is_text);
+    void enqueue(txbuf buf);
 };
 
-awaitable_strand<void> websocket_session (
+void websocket_impl::send(const char* data, std::size_t ndata, bool is_text)
+{
+    txbuf buf;
+    buf.code = is_text ? http::WS_OPCODE_DATA_TEXT : http::WS_OPCODE_DATA_BINARY;
+    buf.data.assign(data, data + ndata);
+
+    boost::asio::dispatch(
+        sock.get_executor(),
+        std::bind_front(&websocket_impl::enqueue, shared_from_this(), std::move(buf)));
+}
+
+awaitable_strand websocket_write_loop(std::shared_ptr<websocket_impl> ws);
+
+void websocket_impl::enqueue(txbuf buf)
+{
+    // Add to queue
+    buf_write_queue.push_back(std::move(buf));
+
+    // Check if we're already writing
+    if (buf_write_queue.size() > 1)
+        return;
+
+    // We are not currently writing, restart write loop
+    co_spawn(sock.get_executor(), websocket_write_loop(shared_from_this()), detached);
+}
+
+awaitable_strand websocket_write_loop(std::shared_ptr<websocket_impl> ws)
+{
+    try 
+    {
+        while (!ws->buf_write_queue.empty())
+        {
+            auto buf = std::move(ws->buf_write_queue.front());
+            ws->buf_write_queue.erase(begin(ws->buf_write_queue));
+            co_await http::async_ws_write(ws->sock, buf.data, buf.code, false, deferred);
+        }
+    }
+    catch(const std::exception& e)
+    {
+        ws->sock.lowest_layer().close(); // notifies read to stop
+        fprintf(stderr, "[WS session] %s\n", e.what());
+    }
+}
+
+awaitable_strand websocket_session (
     tcp_socket              sock,
     http::request           req,
     const ws_handlers_t&    handlers
@@ -232,8 +289,7 @@ awaitable_strand<void> websocket_session (
 {
     // Move into shared state
     auto state = std::make_shared<websocket_impl>(std::move(sock));
-    std::vector<char> buf_tmp;
-    std::vector<char> buf_pay;
+    std::vector<char> buf;
 
     try 
     {
@@ -244,7 +300,7 @@ awaitable_strand<void> websocket_session (
         for(;;)
         {
             // Read
-            http::websocket_opcode opcode = co_await http::async_ws_read(state->sock, buf_tmp, buf_pay, deferred);
+            http::websocket_opcode opcode = co_await http::async_ws_read(state->sock, buf, deferred);
 
             if (opcode == http::WS_OPCODE_CONTINUATION)
                 break; // This shouldn't happen
@@ -253,20 +309,11 @@ awaitable_strand<void> websocket_session (
             else if (opcode == http::WS_OPCODE_PONG)
                 continue; // Nothing to do
             else if (opcode == http::WS_OPCODE_PING)
-                ret = co_await http::async_ws_write(state->sock, buf_tmp, buf_pay, http::WS_OPCODE_PONG, false, deferred);
+                state->enqueue({buf, http::WS_OPCODE_PONG});
             else if (opcode == http::WS_OPCODE_DATA_TEXT)
-                handlers.on_data(state, buf_pay.data(), buf_pay.size(), true);
+                handlers.on_data(state, buf.data(), buf.size(), true);
             else if (opcode == http::WS_OPCODE_DATA_BINARY)
-                handlers.on_data(state, buf_pay.data(), buf_pay.size(), false);
-
-            // Check for writes
-            if (!state->buffers.empty())
-            {
-                auto txbuf = std::move(state->buffers[0]);
-                state->buffers.erase(begin(state->buffers));
-                opcode = txbuf.is_text ? http::WS_OPCODE_DATA_TEXT : http::WS_OPCODE_DATA_BINARY;
-                ret = co_await http::async_ws_write(state->sock, buf_tmp, txbuf.buf, opcode, false, deferred);
-            }
+                handlers.on_data(state, buf.data(), buf.size(), false);
         }
     }
     catch(const std::exception& e)
@@ -274,6 +321,7 @@ awaitable_strand<void> websocket_session (
         fprintf(stderr, "[WS session] %s\n", e.what());
     }
 
+    sock.lowest_layer().close();
     handlers.on_close(state);
 }
 
@@ -283,7 +331,7 @@ awaitable_strand<void> websocket_session (
 //----------------------------------------------------------------------------------------------------------------
 //----------------------------------------------------------------------------------------------------------------
 
-awaitable_strand<void> http_session (
+awaitable_strand http_session (
     tcp_socket          sock, 
     const api_options&  options
 )
@@ -306,14 +354,18 @@ awaitable_strand<void> http_session (
                 break;
             }
 
-            // Handle request
+            // Reset response, set http version and keep alive status of response
             resp.clear();
+            resp.http_version_major = req.http_version_major;
+            resp.http_version_minor = req.http_version_minor;
+            resp.keep_alive(req.keep_alive());
+            
+            // Handle request and set response
             handle_request(options.docroot, options.username, options.password, options.http_handlers, req, resp);
 
             // Write response
             const bool keep_alive = req.keep_alive();
-            resp.prepare(keep_alive, req.http_version_major, req.http_version_minor);
-            res = co_await async_http_write(sock, resp, deferred);
+            res = co_await async_http_write(sock, resp, buf, deferred);
 
             // Shutdown if necessary
             if(!keep_alive)
@@ -324,9 +376,10 @@ awaitable_strand<void> http_session (
             }
         }
     }
-    catch(const std::exception& e)
+    catch(const boost::system::system_error& e)
     {
-        fprintf(stderr, "[HTTP session] %s\n", e.what());
+        if (e.code() != boost::asio::error::eof)
+            fprintf(stderr, "[HTTP session] %s\n", e.what());
     }
 }
 
@@ -336,7 +389,7 @@ awaitable_strand<void> http_session (
 //----------------------------------------------------------------------------------------------------------------
 //----------------------------------------------------------------------------------------------------------------
 
-awaitable<void> listen (
+awaitable listen (
     boost::asio::io_context&    ioc, 
     const api_options&          options
 )
@@ -359,21 +412,23 @@ int main()
 {
     try
     {
+        std::ifstream fin("./test/pride_and_prejudice.txt");
+
         boost::asio::io_context ioc{1};
         boost::asio::signal_set signals(ioc, SIGINT, SIGTERM);
         signals.async_wait([&](auto, auto){ ioc.stop(); });
 
         api_options options = {
             .port       = 8000,
-            .docroot    = "./web",
+            .docroot    = "./test/web",
             .username   = "Tommy",
             .password   = "Aldridge",
 
             .http_handlers = {
-                {"/status", [&](const http::request& req, http::response& reply)
+                {"/darcy", [&](const http::request& req, http::response& reply)
                 {
                     reply.status = http::status_type::ok;
-                    reply.content_str = "All good here";
+                    reply.content_str = read_next(fin, 2000);
                     reply.add_header(http::field::content_type, "text/plain");
                 }}
             },
@@ -383,7 +438,7 @@ int main()
                 .on_close = [](auto ws) {printf("Websocket closed\n");},
                 .on_data  = [](auto ws, const char* data, size_t ndata, bool is_text) {
                     printf("Websocket received %zu bytes. Echoing back\n", ndata);
-                    ws->write(data, ndata, is_text);
+                    ws->send(data, ndata, is_text);
                 }
             }
         };
@@ -396,4 +451,6 @@ int main()
     {
         printf("Exception: %s\n", e.what());
     }
+
+    printf("Done\n");
 }

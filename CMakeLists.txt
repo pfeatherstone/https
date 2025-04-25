@@ -11,10 +11,7 @@ find_package(OpenSSL REQUIRED)
 add_library(http 
   src/http_base64.cpp
   src/http_error.cpp
-  src/http_field.cpp
-  src/http_message.cpp
-  src/http_mime.cpp
-  src/http_status.cpp)
+  src/http_message.cpp)
 
 target_link_libraries(http
   PUBLIC Boost::asio
