@@ -400,7 +400,8 @@ int main()
 {
     try
     {
-        std::ifstream fin("./test/pride_and_prejudice.txt");
+        std::ifstream fin0("./test/pride_and_prejudice.txt");
+        std::ifstream fin1("./test/pride_and_prejudice.txt");
 
         boost::asio::io_context ioc{1};
         boost::asio::signal_set signals(ioc, SIGINT, SIGTERM);
@@ -416,7 +417,7 @@ int main()
                 {"/darcy", [&](const http::request& req, http::response& reply)
                 {
                     reply.status = http::status_type::ok;
-                    reply.content_str = read_next(fin, 2000);
+                    reply.content_str = read_next(fin0, 2000);
                     reply.add_header(http::field::content_type, "text/plain");
                 }}
             },
@@ -424,9 +425,10 @@ int main()
             .ws_handlers = {
                 .on_open  = [](auto ws) {printf("Websocket connection open\n");},
                 .on_close = [](auto ws) {printf("Websocket closed\n");},
-                .on_data  = [](auto ws, const char* data, size_t ndata, bool is_text) {
-                    printf("Websocket received %zu bytes. Echoing back\n", ndata);
-                    ws->send(data, ndata, is_text);
+                .on_data  = [&](auto ws, const char* data, size_t ndata, bool is_text) {
+                    printf("Websocket received %zu bytes\n", ndata);
+                    auto msg = read_next(fin1, 2000);
+                    ws->send(msg.data(), msg.size(), true);
                 }
             }
         };
