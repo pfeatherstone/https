@@ -2,18 +2,20 @@
 
 namespace http
 {
-    enum http_error
+    enum error
     {
-        HTTP_READ_HEADER_FAIL = 1,
-        HTTP_READ_BODY_FAIL,
-        WS_ACCEPT_MISSING_SEQ_KEY,
+        http_read_header_fail = 1,
+        http_read_body_fail,
+        ws_accept_missing_seq_key,
+        ws_invalid_opcode,
+        ws_closed
     };
 
-    std::error_code make_error_code(http_error ec);
+    std::error_code make_error_code(error ec);
 }
 
 namespace std
 {
     template <>
-    struct is_error_code_enum<http::http_error> : std::true_type {};
+    struct is_error_code_enum<http::error> : std::true_type {};
 }

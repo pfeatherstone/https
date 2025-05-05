@@ -226,7 +226,7 @@ void handle_request (
 
 struct websocket_impl : websocket, std::enable_shared_from_this<websocket_impl>
 {
-    struct txbuf {std::vector<char> data; http::websocket_opcode code;};
+    struct txbuf {std::vector<char> data; bool is_text;};
 
     tcp_socket          sock;
     std::vector<txbuf>  buf_write_queue;
@@ -240,7 +240,7 @@ struct websocket_impl : websocket, std::enable_shared_from_this<websocket_impl>
 void websocket_impl::send(const char* data, std::size_t ndata, bool is_text)
 {
     txbuf buf;
-    buf.code = is_text ? http::WS_OPCODE_DATA_TEXT : http::WS_OPCODE_DATA_BINARY;
+    buf.is_text = is_text;
     buf.data.assign(data, data + ndata);
 
     boost::asio::dispatch(
@@ -271,7 +271,7 @@ awaitable_strand websocket_write_loop(std::shared_ptr<websocket_impl> ws)
         {
             auto buf = std::move(ws->buf_write_queue.front());
             ws->buf_write_queue.erase(begin(ws->buf_write_queue));
-            co_await http::async_ws_write(ws->sock, buf.data, buf.code, false, deferred);
+            co_await http::async_ws_write(ws->sock, buf.data, buf.is_text, true, deferred);
         }
     }
     catch(const std::exception& e)
@@ -300,20 +300,8 @@ awaitable_strand websocket_session (
         for(;;)
         {
             // Read
-            http::websocket_opcode opcode = co_await http::async_ws_read(state->sock, buf, deferred);
-
-            if (opcode == http::WS_OPCODE_CONTINUATION)
-                break; // This shouldn't happen
-            else if (opcode == http::WS_OPCODE_CLOSE)
-                break; // Legit need to close
-            else if (opcode == http::WS_OPCODE_PONG)
-                continue; // Nothing to do
-            else if (opcode == http::WS_OPCODE_PING)
-                state->enqueue({buf, http::WS_OPCODE_PONG});
-            else if (opcode == http::WS_OPCODE_DATA_TEXT)
-                handlers.on_data(state, buf.data(), buf.size(), true);
-            else if (opcode == http::WS_OPCODE_DATA_BINARY)
-                handlers.on_data(state, buf.data(), buf.size(), false);
+            const bool is_text = co_await http::async_ws_read(state->sock, buf, true, deferred);
+            handlers.on_data(state, buf.data(), buf.size(), is_text);
         }
     }
     catch(const std::exception& e)

@@ -546,22 +546,20 @@ namespace http
 
 //----------------------------------------------------------------------------------------------------------------
     
-    template<class Headers>
-    auto find_field(Headers&& headers, const field f)
+    constexpr auto find_field = [] (auto&& headers, const field f)
     {
         return std::find_if(begin(headers), end(headers), [=](const auto& hdr) {return hdr.key == f;});
-    }
+    };
 
-    void remove_field(std::vector<header>& headers, const field f)
+    constexpr auto remove_field = [] (auto& headers, const field f)
     {
         headers.erase(std::remove_if(begin(headers), end(headers), [=](const auto& hdr) {return hdr.key == f;}), end(headers));
-    }
+    };
 
-    template<class Headers>
-    bool contains(Headers&& headers, const field f)
+    constexpr auto contains = [] (auto&& headers, const field f)
     {
         return find_field(headers, f) != end(headers);
-    }
+    };
 
 //----------------------------------------------------------------------------------------------------------------
 

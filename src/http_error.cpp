@@ -12,11 +12,13 @@ namespace http
 
         std::string message(int ev) const override
         {
-            switch(static_cast<http_error>(ev))
+            switch(static_cast<error>(ev))
             {
-            case HTTP_READ_HEADER_FAIL:     return "Error while parsing HTTP request headers";
-            case HTTP_READ_BODY_FAIL:       return "Error while reading HTTP body";
-            case WS_ACCEPT_MISSING_SEQ_KEY: return "Missing seq-websocket-key in HTTP websocket upgrade request message";
+            case http_read_header_fail:     return "Error while parsing HTTP request headers";
+            case http_read_body_fail:       return "Error while reading HTTP body";
+            case ws_accept_missing_seq_key: return "Missing seq-websocket-key in HTTP websocket upgrade request message";
+            case ws_invalid_opcode:         return "Received invalid opcode";
+            case ws_closed:                 return "Websocket received closed opcode";
             default:                        return "Unrecognised error";
             }
         }
@@ -24,7 +26,7 @@ namespace http
 
     const http_error_category http_error_category_singleton;
 
-    std::error_code make_error_code(http_error ec)
+    std::error_code make_error_code(error ec)
     {
         return {static_cast<int>(ec), http_error_category_singleton};
     }

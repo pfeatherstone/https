@@ -525,8 +525,6 @@ namespace http
 
     namespace details
     {
-        void    clear(request& req);
-        void    clear(response& resp);
         int     parse_header(request& req, const size_t ndata, char* data);
         void    serialize_header(response& resp, std::string& buf);
     }
