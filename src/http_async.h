@@ -740,7 +740,7 @@ namespace http
             }
 
             template<class Self>
-            void operator()(Self& self, boost::system::error_code error = {}, size_t bytes_transferred = {}, websocket_opcode code = WS_OPCODE_CONTINUATION)
+            void run(Self& self, boost::system::error_code error, size_t bytes_transferred, websocket_opcode code)
             {
                 // Error
                 if (error)
@@ -780,6 +780,24 @@ namespace http
                         break;
                     }
                 }
+            }
+
+            template<class Self>
+            void operator()(Self& self)
+            {
+                run(self, {}, 0, WS_OPCODE_CONTINUATION);
+            }
+
+            template<class Self>
+            void operator()(Self& self, boost::system::error_code error, size_t bytes_transferred)
+            {
+                run(self, error, bytes_transferred, WS_OPCODE_CONTINUATION);
+            }
+
+            template<class Self>
+            void operator()(Self& self, boost::system::error_code error, websocket_opcode code)
+            {
+                run(self, error, 0, code);
             }
         };
     }
