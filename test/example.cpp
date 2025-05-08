@@ -27,30 +27,9 @@ using boost::asio::ip::tcp;
 using boost::asio::make_strand;
 using tcp_acceptor      = boost::asio::basic_socket_acceptor<tcp, boost::asio::io_context::executor_type>;
 using tcp_socket        = boost::asio::basic_stream_socket<tcp,   boost::asio::strand<boost::asio::io_context::executor_type>>;
-// using tls_socket    = boost::asio::ssl::stream<tcp_socket>;
 using awaitable         = boost::asio::awaitable<void, boost::asio::io_context::executor_type>;
 using awaitable_strand  = boost::asio::awaitable<void, boost::asio::strand<boost::asio::io_context::executor_type>>;
 namespace fs = std::filesystem;
-
-//----------------------------------------------------------------------------------------------------------------
-//----------------------------------------------------------------------------------------------------------------
-// Example Data
-//----------------------------------------------------------------------------------------------------------------
-//----------------------------------------------------------------------------------------------------------------
-
-std::string read_next(std::ifstream& fin, const size_t ncharacters)
-{
-    if (fin.eof())
-    {
-        fin.clear();
-        fin.seekg(0);
-    }
-
-    std::string msg(ncharacters, '\0');
-    fin.read(&msg[0], msg.size());
-    msg.resize(fin.gcount());
-    return msg;   
-}
 
 //----------------------------------------------------------------------------------------------------------------
 //----------------------------------------------------------------------------------------------------------------
@@ -104,6 +83,21 @@ struct api_options
         std::string_view second = str.substr(pos+chrs.size());
 
         return std::make_pair(first, second);
+    }
+
+    std::string read_next(std::ifstream& fin, const size_t ncharacters)
+    {
+        if (fin.eof())
+        {
+            fin.clear();
+            fin.seekg(0);
+        }
+
+        std::string msg(ncharacters, '\0');
+        fin.read(&msg[0], msg.size());
+        msg.resize(fin.gcount());
+        
+        return msg;   
     }
 
 //----------------------------------------------------------------------------------------------------------------
@@ -277,7 +271,7 @@ awaitable_strand websocket_write_loop(std::shared_ptr<websocket_impl> ws)
     catch(const std::exception& e)
     {
         ws->sock.lowest_layer().close(); // notifies read to stop
-        fprintf(stderr, "[WS session] %s\n", e.what());
+        fprintf(stderr, "[WS session] write loop : %s\n", e.what());
     }
 }
 
@@ -306,7 +300,7 @@ awaitable_strand websocket_session (
     }
     catch(const std::exception& e)
     {
-        fprintf(stderr, "[WS session] %s\n", e.what());
+        fprintf(stderr, "[WS session] read loop : %s\n", e.what());
     }
 
     sock.lowest_layer().close();
@@ -426,7 +420,7 @@ int main()
                 .on_open  = [](auto ws) {printf("Websocket connection open\n");},
                 .on_close = [](auto ws) {printf("Websocket closed\n");},
                 .on_data  = [&](auto ws, const char* data, size_t ndata, bool is_text) {
-                    printf("Websocket received %zu bytes\n", ndata);
+                    printf("Websocket received `%.*s`\n", (int)ndata, data);
                     auto msg = read_next(fin1, 2000);
                     ws->send(msg.data(), msg.size(), true);
                 }
