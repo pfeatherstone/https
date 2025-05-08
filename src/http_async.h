@@ -361,7 +361,7 @@ namespace http
                     self.complete(error, ntransferred);
 
                 // Build reply
-                if (state == starting)
+                else if (state == starting)
                 {
                     state = writing;
 
