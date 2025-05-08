@@ -747,7 +747,7 @@ namespace http
                     self.complete(error, {});
 
                 // Read
-                if (state == reading)
+                else if (state == reading)
                 {
                     state = parse;
                     async_ws_read_one(sock, buf, std::move(self));
