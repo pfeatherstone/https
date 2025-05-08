@@ -21,12 +21,14 @@ app.controller('testCtrl', function($scope, $http, $interval, $q) {
     // WS
     var socket  = new WebSocket('ws://' + window.location.hostname + ':' + window.location.port + '/ws');
     var promise = null;
+    var counter = 0;
 
     socket.onopen = function(event) {
         console.log("connection opened");
+        socket.send("Sending message to server on WS " + counter++);
 
         promise = $interval(function() {
-            socket.send("Sending message to server on WS");
+            socket.send("Sending message to server on WS " + counter++);
         }, 1000);
     };
 
