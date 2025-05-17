@@ -37,16 +37,14 @@ $ ./build/example_ssl
 Open a browser at http(s)://localhost:8000. 
 Note, the examples showcase basic authentication. The user is "Tommy" and the password is "Aldridge". 
 
-## API
-
-TODO
 
 ## Roadmap
 
+- [ ] Documentation
 - [ ] HTTP(s) and WS(s) clients
 - [ ] Unit tests
 
-## Rarely asked question
+## Rarely Asked Questions
 
 - Q: Why are you not writing the base library Sans-IO? It's the fashion!
 
