@@ -10,6 +10,8 @@
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/strand.hpp>
 #include <boost/asio/ip/tcp.hpp>
+#include <boost/asio/ssl/context.hpp>
+#include <boost/asio/ssl/stream.hpp>
 #include <boost/asio/signal_set.hpp>
 #include <http_async.h>
 
@@ -25,6 +27,7 @@ using boost::asio::ip::tcp;
 using boost::asio::make_strand;
 using tcp_acceptor      = boost::asio::basic_socket_acceptor<tcp, boost::asio::io_context::executor_type>;
 using tcp_socket        = boost::asio::basic_stream_socket<tcp,   boost::asio::strand<boost::asio::io_context::executor_type>>;
+using tls_socket        = boost::asio::ssl::stream<tcp_socket>;
 using awaitable         = boost::asio::awaitable<void, boost::asio::io_context::executor_type>;
 using awaitable_strand  = boost::asio::awaitable<void, boost::asio::strand<boost::asio::io_context::executor_type>>;
 namespace fs = std::filesystem;
@@ -220,10 +223,10 @@ struct websocket_impl : websocket, std::enable_shared_from_this<websocket_impl>
 {
     struct txbuf {std::vector<char> data; bool is_text;};
 
-    tcp_socket          sock;
+    tls_socket          sock;
     std::vector<txbuf>  buf_write_queue;
 
-    websocket_impl(tcp_socket sock_) : sock{std::move(sock_)} {}
+    websocket_impl(tls_socket sock_) : sock{std::move(sock_)} {}
 
     void send(const char* data, std::size_t ndata, bool is_text);
     void enqueue(txbuf buf);
@@ -274,9 +277,10 @@ awaitable_strand websocket_write_loop(std::shared_ptr<websocket_impl> ws)
 }
 
 awaitable_strand websocket_session (
-    tcp_socket              sock,
+    tls_socket              sock,
     http::request           req,
-    const ws_handlers_t&    handlers
+    const ws_handlers_t&    handlers,
+    std::shared_ptr<boost::asio::ssl::context> ssl
 )
 {
     // Move into shared state
@@ -312,8 +316,9 @@ awaitable_strand websocket_session (
 //----------------------------------------------------------------------------------------------------------------
 
 awaitable_strand http_session (
-    tcp_socket          sock, 
-    const api_options&  options
+    tls_socket                                  sock, 
+    const api_options&                          options,
+    std::shared_ptr<boost::asio::ssl::context>  ssl
 )
 {
     try
@@ -321,6 +326,8 @@ awaitable_strand http_session (
         http::request   req;
         http::response  resp;
         std::string     buf;
+
+        co_await sock.async_handshake(boost::asio::ssl::stream_base::server, deferred);
         
         for (;;)
         {
@@ -330,7 +337,7 @@ awaitable_strand http_session (
             // Manage websocket
             if (req.is_websocket_req())
             {
-                co_spawn(sock.get_executor(), websocket_session(std::move(sock), std::move(req), options.ws_handlers), detached);
+                co_spawn(sock.get_executor(), websocket_session(std::move(sock), std::move(req), options.ws_handlers, ssl), detached);
                 break;
             }
 
@@ -374,11 +381,22 @@ awaitable listen (
     const api_options&          options
 )
 {
+    auto ssl = std::make_shared<boost::asio::ssl::context>(boost::asio::ssl::context::tlsv13_server);
+    ssl->set_options(
+        boost::asio::ssl::context::default_workarounds | 
+        boost::asio::ssl::context::no_sslv2 | 
+        boost::asio::ssl::context::single_dh_use |
+        boost::asio::ssl::context::verify_peer
+    );
+    ssl->set_password_callback([=](std::size_t, boost::asio::ssl::context_base::password_purpose) {return "hello there";});
+    ssl->use_certificate_chain_file("test/cert.pem");
+    ssl->use_private_key_file("test/key.pem", boost::asio::ssl::context::pem);
+
     tcp_acceptor acceptor(ioc, {tcp::v4(), options.port});
     for (;;)
     {
         tcp_socket sock = co_await acceptor.async_accept(make_strand(ioc), deferred);
-        co_spawn(sock.get_executor(), http_session(std::move(sock), options), detached);
+        co_spawn(sock.get_executor(), http_session(tls_socket(std::move(sock), *ssl), options, ssl), detached);
     }
 }
 

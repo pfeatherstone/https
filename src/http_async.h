@@ -5,9 +5,7 @@
 #include <boost/asio/read_until.hpp>
 #include <boost/asio/write.hpp>
 #include <openssl/evp.h>
-#include "http_error.h"
-#include "http_base64.h"
-#include "http_message.h"
+#include "http.h"
 
 namespace http
 {
@@ -394,7 +392,7 @@ namespace http
                         reply->http_version_minor   = req.http_version_minor;
                         reply->add_header(field::upgrade,       "websocket");
                         reply->add_header(field::connection,    "Upgrade");
-                        reply->add_header(field::sec_websocket_accept, to_base64(std::string_view{hash, hash_len}));
+                        reply->add_header(field::sec_websocket_accept, base64_encode(std::string_view{hash, hash_len}));
                         async_http_write(sock, *reply, *buf, std::move(self));
                     }
                 }

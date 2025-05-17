@@ -1,8 +1,12 @@
 #include <cstring>
 #include <algorithm>
 #include <filesystem>
+#include <system_error>
 #include <boost/asio/version.hpp>
-#include "http_message.h"
+#include <openssl/bio.h>
+#include <openssl/evp.h>
+#include <openssl/buffer.h>
+#include "http.h"
 
 namespace fs = std::filesystem;
 
@@ -549,6 +553,43 @@ namespace http
 
 //----------------------------------------------------------------------------------------------------------------
 
+    std::string base64_encode(std::string_view data)
+    {
+        BIO* b64 = BIO_new(BIO_f_base64());
+        BIO* bio = BIO_new(BIO_s_mem());
+        BIO_set_flags(b64, BIO_FLAGS_BASE64_NO_NL);
+        bio = BIO_push(b64, bio);
+        
+        BIO_write(bio, data.data(), data.size());
+        BIO_flush(bio);
+
+        BUF_MEM* buffer_ptr{nullptr};
+        BIO_get_mem_ptr(bio, &buffer_ptr);
+
+        std::string encoded(buffer_ptr->data, buffer_ptr->length);
+        BIO_free_all(bio);
+        return encoded;
+    }
+
+    std::string base64_decode(std::string_view data)
+    {
+        BIO* b64 = BIO_new(BIO_f_base64());
+        BIO* bio = BIO_new_mem_buf(data.data(), data.size());
+        BIO_set_flags(b64, BIO_FLAGS_BASE64_NO_NL);
+        bio = BIO_push(b64, bio);
+
+        std::string output(data.size(), '\0'); // Base64 expands by 4/3, so input is always >= output
+        int decoded_len = BIO_read(bio, output.data(), output.size());
+        if (decoded_len < 0)
+            fprintf(stderr, "Failed to base64 decode data\n");
+
+        output.resize(std::max(decoded_len, 0));
+        BIO_free_all(bio);
+        return output;
+    }
+
+//----------------------------------------------------------------------------------------------------------------
+
     bool header::contains_value(std::string_view v) const
     {
         return value.find(v) != std::string_view::npos;
@@ -779,4 +820,37 @@ namespace http
 //----------------------------------------------------------------------------------------------------------------
 
     }
+
+//----------------------------------------------------------------------------------------------------------------
+
+    struct http_error_category : std::error_category
+    {
+        const char* name() const noexcept override 
+        {
+            return "http_error_category";
+        }
+
+        std::string message(int ev) const override
+        {
+            switch(static_cast<error>(ev))
+            {
+            case http_read_header_fail:     return "Error while parsing HTTP request headers";
+            case http_read_body_fail:       return "Error while reading HTTP body";
+            case ws_accept_missing_seq_key: return "Missing seq-websocket-key in HTTP websocket upgrade request message";
+            case ws_invalid_opcode:         return "Received invalid opcode";
+            case ws_closed:                 return "Websocket received closed opcode";
+            default:                        return "Unrecognised error";
+            }
+        }
+    };
+
+    const http_error_category http_error_category_singleton;
+
+    std::error_code make_error_code(error ec)
+    {
+        return {static_cast<int>(ec), http_error_category_singleton};
+    }
+
+//----------------------------------------------------------------------------------------------------------------
+
 }

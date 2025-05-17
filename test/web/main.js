@@ -19,7 +19,8 @@ app.controller('testCtrl', function($scope, $http, $interval, $q) {
     $interval(getStatus, 1000);
 
     // WS
-    var socket  = new WebSocket('ws://' + window.location.hostname + ':' + window.location.port + '/ws');
+    const protocol = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
+    var socket  = new WebSocket(protocol + window.location.hostname + ':' + window.location.port + '/ws');
     var promise = null;
     var counter = 0;
 
