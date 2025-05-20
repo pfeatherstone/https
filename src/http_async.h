@@ -12,63 +12,81 @@ namespace http
 
 //----------------------------------------------------------------------------------------------------------------
 
-    template<class AsyncReadStream, class CompletionToken>
+    template <
+      class AsyncReadStream, 
+      BOOST_ASIO_COMPLETION_TOKEN_FOR(void(boost::system::error_code, std::size_t)) CompletionToken = boost::asio::default_completion_token_t<typename AsyncReadStream::executor_type>
+    >
     auto async_http_read (
         AsyncReadStream&    sock,
         request&            req,
         std::string&        buf,
-        CompletionToken&&   token
+        CompletionToken&&   token = boost::asio::default_completion_token_t<typename AsyncReadStream::executor_type>()
     );
 
 //----------------------------------------------------------------------------------------------------------------
 
-    template<class AsyncWriteStream, class CompletionToken>
+    template <
+      class AsyncWriteStream, 
+      BOOST_ASIO_COMPLETION_TOKEN_FOR(void(boost::system::error_code, std::size_t)) CompletionToken = boost::asio::default_completion_token_t<typename AsyncWriteStream::executor_type>
+    >
     auto async_write_file (
         AsyncWriteStream&   sock,
         FILE*               file,
         std::string&        buf,
         std::size_t         chunk_size,
-        CompletionToken&&   token
+        CompletionToken&&   token = boost::asio::default_completion_token_t<typename AsyncWriteStream::executor_type>()
     );
 
 //----------------------------------------------------------------------------------------------------------------
 
-    template<class AsyncWriteStream, class CompletionToken>
+    template <
+      class AsyncWriteStream, 
+      BOOST_ASIO_COMPLETION_TOKEN_FOR(void(boost::system::error_code, std::size_t)) CompletionToken = boost::asio::default_completion_token_t<typename AsyncWriteStream::executor_type>
+    >
     auto async_http_write (
         AsyncWriteStream&   sock,
         response&           resp,
         std::string&        buf,
-        CompletionToken&&   token
+        CompletionToken&&   token = boost::asio::default_completion_token_t<typename AsyncWriteStream::executor_type>()
     );
 
 //----------------------------------------------------------------------------------------------------------------
 
-    template<class AsyncWriteStream, class CompletionToken>
+    template <
+      class AsyncWriteStream, 
+      BOOST_ASIO_COMPLETION_TOKEN_FOR(void(boost::system::error_code, std::size_t)) CompletionToken = boost::asio::default_completion_token_t<typename AsyncWriteStream::executor_type>
+    >
     auto async_ws_accept (
         AsyncWriteStream&   sock,
         request             req,
-        CompletionToken&&   token
+        CompletionToken&&   token = boost::asio::default_completion_token_t<typename AsyncWriteStream::executor_type>()
     );
 
 //----------------------------------------------------------------------------------------------------------------
 
-    template<class AsyncReadStream, class CompletionToken>
+    template <
+      class AsyncReadStream, 
+      BOOST_ASIO_COMPLETION_TOKEN_FOR(void(boost::system::error_code, bool)) CompletionToken = boost::asio::default_completion_token_t<typename AsyncReadStream::executor_type>
+    >
     auto async_ws_read (
         AsyncReadStream&    sock,
         std::vector<char>&  buf,
         bool                is_server,
-        CompletionToken&&   token
+        CompletionToken&&   token = boost::asio::default_completion_token_t<typename AsyncReadStream::executor_type>()
     );
 
 //----------------------------------------------------------------------------------------------------------------
 
-    template<class AsyncWriteStream, class CompletionToken>
+    template <
+      class AsyncWriteStream, 
+      BOOST_ASIO_COMPLETION_TOKEN_FOR(void(boost::system::error_code, std::size_t)) CompletionToken = boost::asio::default_completion_token_t<typename AsyncWriteStream::executor_type>
+    >
     auto async_ws_write (
         AsyncWriteStream&   sock,
         std::vector<char>&  buf,
         bool                is_text,
         bool                is_server,
-        CompletionToken&&   token
+        CompletionToken&&   token = boost::asio::default_completion_token_t<typename AsyncWriteStream::executor_type>()
     );
 
 //----------------------------------------------------------------------------------------------------------------
@@ -174,7 +192,10 @@ namespace http
         };
     }
 
-    template<class AsyncReadStream, class CompletionToken>
+    template <
+      class AsyncReadStream, 
+      BOOST_ASIO_COMPLETION_TOKEN_FOR(void(boost::system::error_code, std::size_t)) CompletionToken
+    >
     inline auto async_http_read (
         AsyncReadStream&    sock,
         request&            req,
@@ -236,7 +257,10 @@ namespace http
         };
     }
 
-    template<class AsyncWriteStream, class CompletionToken>
+    template <
+      class AsyncWriteStream, 
+      BOOST_ASIO_COMPLETION_TOKEN_FOR(void(boost::system::error_code, std::size_t)) CompletionToken
+    >
     inline auto async_write_file (
         AsyncWriteStream&   sock,
         FILE*               file,
@@ -314,7 +338,10 @@ namespace http
         };
     }
 
-    template<class AsyncWriteStream, class CompletionToken>
+    template <
+      class AsyncWriteStream, 
+      BOOST_ASIO_COMPLETION_TOKEN_FOR(void(boost::system::error_code, std::size_t)) CompletionToken
+    >
     inline auto async_http_write (
         AsyncWriteStream&   sock,
         response&           resp,
@@ -406,7 +433,10 @@ namespace http
         };
     }
 
-    template<class AsyncWriteStream, class CompletionToken>
+    template <
+      class AsyncWriteStream, 
+      BOOST_ASIO_COMPLETION_TOKEN_FOR(void(boost::system::error_code, std::size_t)) CompletionToken
+    >
     inline auto async_ws_accept (
         AsyncWriteStream&   sock,
         request             req,
@@ -453,13 +483,16 @@ namespace http
     
 //----------------------------------------------------------------------------------------------------------------
 
-        template<class AsyncWriteStream, class CompletionToken>
+        template <
+          class AsyncWriteStream, 
+          BOOST_ASIO_COMPLETION_TOKEN_FOR(void(boost::system::error_code, std::size_t)) CompletionToken = boost::asio::default_completion_token_t<typename AsyncWriteStream::executor_type>
+        >
         inline auto async_ws_write (
             AsyncWriteStream&   sock,
             std::vector<char>&  buf,
             websocket_opcode    opcode,
             bool                do_mask,
-            CompletionToken&&   token
+            CompletionToken&&   token = boost::asio::default_completion_token_t<typename AsyncWriteStream::executor_type>()
         )
         {
             // Header
@@ -541,7 +574,10 @@ namespace http
 
 //----------------------------------------------------------------------------------------------------------------
 
-    template<class AsyncWriteStream, class CompletionToken>
+    template <
+      class AsyncWriteStream, 
+      BOOST_ASIO_COMPLETION_TOKEN_FOR(void(boost::system::error_code, std::size_t)) CompletionToken
+    >
     inline auto async_ws_write (
         AsyncWriteStream&   sock,
         std::vector<char>&  buf,
@@ -708,11 +744,14 @@ namespace http
             }
         };
 
-        template<class AsyncReadStream, class CompletionToken>
+        template <
+          class AsyncReadStream, 
+          BOOST_ASIO_COMPLETION_TOKEN_FOR(void(boost::system::error_code, websocket_opcode)) CompletionToken = boost::asio::default_completion_token_t<typename AsyncReadStream::executor_type>
+        >
         inline auto async_ws_read_one (
             AsyncReadStream&    sock,
             std::vector<char>&  buf,
-            CompletionToken&&   token
+            CompletionToken&&   token = boost::asio::default_completion_token_t<typename AsyncReadStream::executor_type>()
         )
         {
             return boost::asio::async_compose<CompletionToken, void(boost::system::error_code, websocket_opcode)> (
@@ -802,7 +841,10 @@ namespace http
 
 //----------------------------------------------------------------------------------------------------------------
 
-    template<class AsyncReadStream, class CompletionToken>
+    template <
+      class AsyncReadStream, 
+      BOOST_ASIO_COMPLETION_TOKEN_FOR(void(boost::system::error_code, bool)) CompletionToken
+    >
     inline auto async_ws_read (
         AsyncReadStream&    sock,
         std::vector<char>&  buf,

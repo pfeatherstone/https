@@ -6,7 +6,6 @@
 #include <getopt.h>
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/detached.hpp>
-#include <boost/asio/deferred.hpp>
 #include <boost/asio/dispatch.hpp>
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/strand.hpp>
@@ -23,7 +22,6 @@
 //----------------------------------------------------------------------------------------------------------------
 
 using boost::asio::detached;
-using boost::asio::deferred;
 using boost::asio::ip::tcp;
 using boost::asio::make_strand;
 using tcp_acceptor      = boost::asio::basic_socket_acceptor<tcp, boost::asio::io_context::executor_type>;
@@ -277,7 +275,7 @@ awaitable_strand websocket_write_loop(std::shared_ptr<websocket_impl<Socket>> ws
         {
             auto buf = std::move(ws->buf_write_queue.front());
             ws->buf_write_queue.erase(begin(ws->buf_write_queue));
-            co_await http::async_ws_write(ws->sock, buf.data, buf.is_text, true, deferred);
+            co_await http::async_ws_write(ws->sock, buf.data, buf.is_text, true);
         }
     }
     catch(const std::exception& e)
@@ -302,13 +300,13 @@ awaitable_strand websocket_session (
     try 
     {
         // Handshake
-        size_t ret = co_await http::async_ws_accept(state->sock, req, deferred);
+        size_t ret = co_await http::async_ws_accept(state->sock, req);
         handlers.on_open(state);
 
         for(;;)
         {
             // Read
-            const bool is_text = co_await http::async_ws_read(state->sock, buf, true, deferred);
+            const bool is_text = co_await http::async_ws_read(state->sock, buf, true);
             handlers.on_data(state, buf.data(), buf.size(), is_text);
         }
     }
@@ -342,12 +340,12 @@ awaitable_strand http_session (
 
         // Complete TLS handshake if SSL
         if constexpr(std::is_same_v<Socket, tls_socket>)
-            co_await sock.async_handshake(boost::asio::ssl::stream_base::server, deferred);
+            co_await sock.async_handshake(boost::asio::ssl::stream_base::server);
         
         for (;;)
         {
             // Read request
-            size_t res = co_await http::async_http_read(sock, req, buf, deferred);
+            size_t res = co_await http::async_http_read(sock, req, buf);
 
             // Manage websocket
             if (req.is_websocket_req())
@@ -367,12 +365,13 @@ awaitable_strand http_session (
 
             // Write response
             const bool keep_alive = req.keep_alive();
-            res = co_await async_http_write(sock, resp, buf, deferred);
+            res = co_await async_http_write(sock, resp, buf);
 
             // Shutdown if necessary
             if(!keep_alive)
             {
-                // co_await sock.async_shutdown(deferred);
+                if constexpr(std::is_same_v<Socket, tls_socket>)
+                    co_await sock.async_shutdown();
                 sock.lowest_layer().shutdown(tcp_socket::shutdown_both);
                 break;
             }
@@ -416,7 +415,7 @@ awaitable listen (
 
     for (;;)
     {
-        tcp_socket sock = co_await acceptor.async_accept(make_strand(ioc), deferred);
+        tcp_socket sock = co_await acceptor.async_accept(make_strand(ioc));
 
         if (options.use_tls)
         {
