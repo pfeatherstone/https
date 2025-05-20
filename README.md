@@ -41,7 +41,7 @@ Note, the example showcases basic authentication. The user is "Tommy" and the pa
 
 - Q: Why not use Beast?
 
-  A: I find Beast very bloated and unecessarily complicated. HTTP1 and WS are very simple protocols. You don't need a lot of Beast's objects like `basic_stream` or `flat_buffer`. All you need are a few structs and few Asio composed operations and voila.
+  A: I find Beast very bloated and unecessarily complicated. HTTP1 and WS are very simple protocols. You don't need a lot of Beast's objects like `basic_stream` or `flat_buffer`. All you need are a few structs, a few Asio composed operations and voila.
 
 - Q: Why do I need to link to openssl when I'm not using TLS?
 
