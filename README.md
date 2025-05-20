@@ -13,29 +13,22 @@ Copy the contents of `src` into your project then link to:
 
 Check out:
 - `test/example.cpp`
-- `test/example_ssl.cpp`
 
-Build them using:
+Build using:
 
 ```bash
 $ cmake . -B build -DCMAKE_BUILD_TYPE=Release
 $ cmake --build build --parallel
 ```
 
-Try em' using:
+Try using:
 
 ```bash
-$ ./build/example
-```
-
-or:
-
-```bash
-$ ./build/example_ssl
+$ ./build/example [--use_tls]
 ```
 
 Open a browser at http(s)://localhost:8000. 
-Note, the examples showcase basic authentication. The user is "Tommy" and the password is "Aldridge". 
+Note, the example showcases basic authentication. The user is "Tommy" and the password is "Aldridge". 
 
 
 ## Roadmap
@@ -44,7 +37,11 @@ Note, the examples showcase basic authentication. The user is "Tommy" and the pa
 - [ ] HTTP(s) and WS(s) clients
 - [ ] Unit tests
 
-## Rarely Asked Questions
+## Questions
+
+- Q: Why not use Beast
+
+  A: I find Beast very bloated and unecessarily complicated. HTTP1 and WS are very simple protocols. You don't need a lot of Beast's objects like `basic_stream` or `flat_buffer`. All you need are a few structs and few Asio composed operations and voila.
 
 - Q: Why are you not writing the base library Sans-IO? It's the fashion!
 
