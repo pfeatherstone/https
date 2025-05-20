@@ -3,6 +3,7 @@
 #include <vector>
 #include <fstream>
 #include <filesystem>
+#include <getopt.h>
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/detached.hpp>
 #include <boost/asio/deferred.hpp>
@@ -10,6 +11,8 @@
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/strand.hpp>
 #include <boost/asio/ip/tcp.hpp>
+#include <boost/asio/ssl/context.hpp>
+#include <boost/asio/ssl/stream.hpp>
 #include <boost/asio/signal_set.hpp>
 #include <http_async.h>
 
@@ -25,6 +28,7 @@ using boost::asio::ip::tcp;
 using boost::asio::make_strand;
 using tcp_acceptor      = boost::asio::basic_socket_acceptor<tcp, boost::asio::io_context::executor_type>;
 using tcp_socket        = boost::asio::basic_stream_socket<tcp,   boost::asio::strand<boost::asio::io_context::executor_type>>;
+using tls_socket        = boost::asio::ssl::stream<tcp_socket>;
 using awaitable         = boost::asio::awaitable<void, boost::asio::io_context::executor_type>;
 using awaitable_strand  = boost::asio::awaitable<void, boost::asio::strand<boost::asio::io_context::executor_type>>;
 namespace fs = std::filesystem;
@@ -49,12 +53,16 @@ using ws_handlers_t     = struct{ws_onopen_t on_open; ws_onclose_t on_close; ws_
 
 struct api_options
 {
-    uint16_t            port{};
-    std::string_view    docroot;
-    std::string_view    username;
-    std::string_view    password;
-    http_handlers_t     http_handlers;
-    ws_handlers_t       ws_handlers;
+    uint16_t        port{};
+    std::string     docroot;
+    std::string     username;
+    std::string     password;
+    std::string     cert_file;
+    std::string     key_file;
+    std::string     key_password;
+    bool            use_tls;
+    http_handlers_t http_handlers;
+    ws_handlers_t   ws_handlers;
 };
 
 //----------------------------------------------------------------------------------------------------------------
@@ -114,20 +122,20 @@ void http_unauthorized (const http::request& req, http::response& resp, std::str
 
 void http_bad_request (const http::request& req, http::response& resp, std::string_view why)
 {
-    resp.status         = http::status_type::bad_request;
-    resp.content_str    = why;
+    resp.status      = http::status_type::bad_request;
+    resp.content_str = why;
 }
 
 void http_not_found (const http::request& req, http::response& resp)
 {
-    resp.status         = http::status_type::not_found;
-    resp.content_str    = "The resourse " + req.uri + " was not found";
+    resp.status      = http::status_type::not_found;
+    resp.content_str = "The resourse " + req.uri + " was not found";
 }
 
 void http_server_error (const http::request& req, http::response& resp, std::string what)
 {
-    resp.status         = http::status_type::internal_server_error;
-    resp.content_str    = "An error occured: " + what;
+    resp.status      = http::status_type::internal_server_error;
+    resp.content_str = "An error occured: " + what;
 }
 
 void http_file_data (const http::request& req, http::response& resp, std::string_view path, http::file_ptr file)
@@ -216,20 +224,23 @@ void handle_request (
 //----------------------------------------------------------------------------------------------------------------
 //----------------------------------------------------------------------------------------------------------------
 
-struct websocket_impl : websocket, std::enable_shared_from_this<websocket_impl>
+template<class Socket>
+struct websocket_impl : websocket, std::enable_shared_from_this<websocket_impl<Socket>>
 {
     struct txbuf {std::vector<char> data; bool is_text;};
 
-    tcp_socket          sock;
-    std::vector<txbuf>  buf_write_queue;
+    Socket                  sock;
+    std::shared_ptr<void>   ctx;
+    std::vector<txbuf>      buf_write_queue;
 
-    websocket_impl(tcp_socket sock_) : sock{std::move(sock_)} {}
+    websocket_impl(Socket sock_, std::shared_ptr<void> ctx_) : sock{std::move(sock_)}, ctx{ctx_} {}
 
     void send(const char* data, std::size_t ndata, bool is_text);
     void enqueue(txbuf buf);
 };
 
-void websocket_impl::send(const char* data, std::size_t ndata, bool is_text)
+template<class Socket>
+void websocket_impl<Socket>::send(const char* data, std::size_t ndata, bool is_text)
 {
     txbuf buf;
     buf.is_text = is_text;
@@ -237,12 +248,14 @@ void websocket_impl::send(const char* data, std::size_t ndata, bool is_text)
 
     boost::asio::dispatch(
         sock.get_executor(),
-        std::bind_front(&websocket_impl::enqueue, shared_from_this(), std::move(buf)));
+        std::bind_front(&websocket_impl::enqueue, this->shared_from_this(), std::move(buf)));
 }
 
-awaitable_strand websocket_write_loop(std::shared_ptr<websocket_impl> ws);
+template<class Socket>
+awaitable_strand websocket_write_loop(std::shared_ptr<websocket_impl<Socket>> ws);
 
-void websocket_impl::enqueue(txbuf buf)
+template<class Socket>
+void websocket_impl<Socket>::enqueue(txbuf buf)
 {
     // Add to queue
     buf_write_queue.push_back(std::move(buf));
@@ -252,10 +265,11 @@ void websocket_impl::enqueue(txbuf buf)
         return;
 
     // We are not currently writing, restart write loop
-    co_spawn(sock.get_executor(), websocket_write_loop(shared_from_this()), detached);
+    co_spawn(sock.get_executor(), websocket_write_loop(this->shared_from_this()), detached);
 }
 
-awaitable_strand websocket_write_loop(std::shared_ptr<websocket_impl> ws)
+template<class Socket>
+awaitable_strand websocket_write_loop(std::shared_ptr<websocket_impl<Socket>> ws)
 {
     try 
     {
@@ -273,14 +287,16 @@ awaitable_strand websocket_write_loop(std::shared_ptr<websocket_impl> ws)
     }
 }
 
+template<class Socket>
 awaitable_strand websocket_session (
-    tcp_socket              sock,
+    Socket                  sock,
     http::request           req,
-    const ws_handlers_t&    handlers
+    const ws_handlers_t&    handlers,
+    std::shared_ptr<void>   ctx
 )
 {
     // Move into shared state
-    auto state = std::make_shared<websocket_impl>(std::move(sock));
+    auto state = std::make_shared<websocket_impl<Socket>>(std::move(sock), ctx);
     std::vector<char> buf;
 
     try 
@@ -311,9 +327,11 @@ awaitable_strand websocket_session (
 //----------------------------------------------------------------------------------------------------------------
 //----------------------------------------------------------------------------------------------------------------
 
+template<class Socket>
 awaitable_strand http_session (
-    tcp_socket          sock, 
-    const api_options&  options
+    Socket                  sock, 
+    const api_options&      options,
+    std::shared_ptr<void>   ctx
 )
 {
     try
@@ -321,6 +339,10 @@ awaitable_strand http_session (
         http::request   req;
         http::response  resp;
         std::string     buf;
+
+        // Complete TLS handshake if SSL
+        if constexpr(std::is_same_v<Socket, tls_socket>)
+            co_await sock.async_handshake(boost::asio::ssl::stream_base::server, deferred);
         
         for (;;)
         {
@@ -330,7 +352,7 @@ awaitable_strand http_session (
             // Manage websocket
             if (req.is_websocket_req())
             {
-                co_spawn(sock.get_executor(), websocket_session(std::move(sock), std::move(req), options.ws_handlers), detached);
+                co_spawn(sock.get_executor(), websocket_session(std::move(sock), std::move(req), options.ws_handlers, ctx), detached);
                 break;
             }
 
@@ -374,11 +396,37 @@ awaitable listen (
     const api_options&          options
 )
 {
+    std::shared_ptr<boost::asio::ssl::context> ssl{nullptr};
+
+    if (options.use_tls)
+    {
+        ssl = std::make_shared<boost::asio::ssl::context>(boost::asio::ssl::context::tlsv13_server);
+        ssl->set_options(
+            boost::asio::ssl::context::default_workarounds | 
+            boost::asio::ssl::context::no_sslv2 | 
+            boost::asio::ssl::context::single_dh_use |
+            boost::asio::ssl::context::verify_peer
+        );
+        ssl->set_password_callback([=](std::size_t, boost::asio::ssl::context_base::password_purpose) {return options.key_password;});
+        ssl->use_certificate_chain_file(options.cert_file);
+        ssl->use_private_key_file(options.key_file, boost::asio::ssl::context::pem);
+    }
+
     tcp_acceptor acceptor(ioc, {tcp::v4(), options.port});
+
     for (;;)
     {
         tcp_socket sock = co_await acceptor.async_accept(make_strand(ioc), deferred);
-        co_spawn(sock.get_executor(), http_session(std::move(sock), options), detached);
+
+        if (options.use_tls)
+        {
+            tls_socket tls_sock{std::move(sock), *ssl};
+            co_spawn(sock.get_executor(), http_session(std::move(tls_sock), options, ssl), detached);
+        }
+        else
+        {
+            co_spawn(sock.get_executor(), http_session(std::move(sock), options, nullptr), detached);
+        }
     }
 }
 
@@ -388,8 +436,35 @@ awaitable listen (
 //----------------------------------------------------------------------------------------------------------------
 //----------------------------------------------------------------------------------------------------------------
 
-int main()
+int main(int argc, char* argv[])
 {
+    bool use_tls{false};
+
+    const struct option long_options[] = {
+        {"help",    no_argument, 0, 'h'},
+        {"use_tls", no_argument, 0, 0},
+        {0, 0, 0, 0}
+    };
+
+    const auto usage = [&] {
+        printf("Usage: %s [-h|--help] [--use_tls]\n", argv[0]);
+        return 0;
+    };
+
+    while (true) 
+    {
+        int option_index{0}; // In case of error, this will be 0, name will be "help", and usage will be printed
+        int opt = getopt_long(argc, argv, "h", long_options, &option_index);
+        const char* name = long_options[option_index].name;
+
+        if (opt == -1)
+            break;
+        else if (opt == 'h' || strcmp(name, "help") == 0)
+            return usage();
+        else if (opt == 0 && strcmp(name, "use_tls") == 0)  
+            use_tls = true;
+    }
+
     try
     {
         std::ifstream fin0("./test/pride_and_prejudice.txt");
@@ -400,10 +475,14 @@ int main()
         signals.async_wait([&](auto, auto){ ioc.stop(); });
 
         api_options options = {
-            .port       = 8000,
-            .docroot    = "./test/web",
-            .username   = "Tommy",
-            .password   = "Aldridge",
+            .port           = 8000,
+            .docroot        = "./test/web",
+            .username       = "Tommy",
+            .password       = "Aldridge",
+            .cert_file      = "./test/cert.pem",
+            .key_file       = "./test/key.pem",
+            .key_password   = "hello there",
+            .use_tls        = use_tls,
 
             .http_handlers = {
                 {"/darcy", [&](const http::request& req, http::response& reply)

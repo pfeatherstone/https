@@ -48,7 +48,6 @@ Note, the examples showcase basic authentication. The user is "Tommy" and the pa
 
 - Q: Why are you not writing the base library Sans-IO? It's the fashion!
 
-  A: Because i'm only going to use this with Asio. I don't mind having state-machine logic inside an Asio composed operation rather than something custom. I believe the only reason people are doing this Sans-IO stuff is for unit tests. They don't actually have to open a socket. But really people are only going to use those libs with Asio.
-
+  A: Because I'm only going to use this with Asio. I don't mind having state-machine logic inside an Asio composed operation rather than something custom. I believe the only reason people are doing Sans-IO stuff is for unit tests. It means you don't actually have to open a socket.
 
 
