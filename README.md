@@ -11,7 +11,7 @@ Copy the contents of `src` into your project then link to:
 
 ## Examples
 
-Check out:
+Try out:
 - `test/example.cpp`
 
 Build using:
@@ -39,12 +39,16 @@ Note, the example showcases basic authentication. The user is "Tommy" and the pa
 
 ## Questions
 
-- Q: Why not use Beast
+- Q: Why not use Beast?
 
   A: I find Beast very bloated and unecessarily complicated. HTTP1 and WS are very simple protocols. You don't need a lot of Beast's objects like `basic_stream` or `flat_buffer`. All you need are a few structs and few Asio composed operations and voila.
 
+- Q: Why do I need to link to openssl when I'm not using TLS?
+
+  A: Because of SHA1 and Base64 encoding/decoding. You need those for websockets, even without TLS, and I can't be bothered to implement those functions.
+
 - Q: Why are you not writing the base library Sans-IO? It's the fashion!
 
-  A: Because I'm only going to use this with Asio. I don't mind having state-machine logic inside an Asio composed operation rather than something custom. I believe the only reason people are doing Sans-IO stuff is for unit tests. It means you don't actually have to open a socket.
+  A: Because I'm only going to use this with Asio. I don't mind having state-machine logic inside an Asio composed operation rather than something custom. As far as I can tell, the only motivation for Sans-IO is unit tests. It means you don't have to open a socket.
 
 
