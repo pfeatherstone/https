@@ -466,8 +466,8 @@ int main(int argc, char* argv[])
 
     try
     {
-        std::ifstream fin0("./test/pride_and_prejudice.txt");
-        std::ifstream fin1("./test/pride_and_prejudice.txt");
+        std::ifstream fin0("./test/data/pride_and_prejudice.txt");
+        std::ifstream fin1("./test/data/pride_and_prejudice.txt");
 
         boost::asio::io_context ioc{1};
         boost::asio::signal_set signals(ioc, SIGINT, SIGTERM);
@@ -478,8 +478,8 @@ int main(int argc, char* argv[])
             .docroot        = "./test/web",
             .username       = "Tommy",
             .password       = "Aldridge",
-            .cert_file      = "./test/cert.pem",
-            .key_file       = "./test/key.pem",
+            .cert_file      = "./test/data/cert.pem",
+            .key_file       = "./test/data/key.pem",
             .key_password   = "hello there",
             .use_tls        = use_tls,
 

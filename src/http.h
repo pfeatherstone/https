@@ -508,6 +508,7 @@ namespace http
         std::string         content;
 
         void clear();
+        void add_header(field f, std::string_view value);
         auto find(field f) const -> std::vector<header>::const_iterator;
         bool keep_alive() const;
         bool is_websocket_req() const;
@@ -526,6 +527,7 @@ namespace http
 
         void clear();
         void add_header(field f, std::string_view value);
+        auto find(field f) const -> std::vector<header>::const_iterator;
         void keep_alive(bool keep_alive_);
     };
 
@@ -534,6 +536,8 @@ namespace http
     namespace details
     {
         int     parse_header(request& req, const size_t ndata, char* data);
+        int     parse_header(response& resp, const size_t ndata, char* data);
+        void    serialize_header(request& req, std::string& buf);
         void    serialize_header(response& resp, std::string& buf);
     }
 

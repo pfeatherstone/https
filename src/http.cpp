@@ -26,6 +26,24 @@ namespace http
 
 //----------------------------------------------------------------------------------------------------------------
 
+    std::string format(const char* fmt, ...) __attribute__ ((format (printf, 1, 2)));
+
+    std::string format(const char* fmt, ...)
+    {
+        va_list args0, args1;
+        va_start(args0, fmt);
+        va_copy(args1, args0);
+        const int ret = vsnprintf(nullptr, 0, fmt, args0);
+        std::string str(ret+1, '\0');
+        vsnprintf(&str[0], ret+1, fmt, args1);
+        str.resize(ret);
+        va_end(args0);
+        va_end(args1);
+        return str;
+    }
+
+//----------------------------------------------------------------------------------------------------------------
+
     constexpr std::string_view FIELDS[] = {
         "<unknown-field>",
         "a-im",
@@ -624,6 +642,11 @@ namespace http
         http_version_minor = 0;
     }
 
+    void request::add_header(field f, std::string_view value)
+    {
+        headers.push_back({f, std::string(value)});
+    }
+
     auto request::find(field f) const -> std::vector<header>::const_iterator
     {
         return find_field(headers, f);
@@ -682,6 +705,11 @@ namespace http
         headers.push_back({f, std::string(value)});
     }
 
+    auto response::find(field f) const -> std::vector<header>::const_iterator
+    {
+        return find_field(headers, f);
+    }
+
     void response::keep_alive(bool keep_alive_)
     {
         add_header(field::connection, keep_alive_ ? "keep-alive" : "close");
@@ -694,7 +722,25 @@ namespace http
 
 //----------------------------------------------------------------------------------------------------------------
 
-        int parse_header(request& req, const size_t ndata, char* data)
+        int parse_start_line(request& req, const char* line)
+        {
+            req.method.resize(8, '\0');
+            req.uri.resize(strlen(line));
+            const int ret = sscanf(line, "%s %s HTTP/%i.%i", &req.method[0], &req.uri[0], &req.http_version_major, &req.http_version_minor);
+            if (ret != 4)
+                return -1;
+            req.method.resize(strlen(req.method.c_str()));
+            req.uri.resize(strlen(req.uri.c_str()));
+            return 0;
+        }
+
+        int parse_start_line(response& resp, const char* line)
+        {
+            const int ret = sscanf(line, "HTTP/%i.%i %u", &resp.http_version_major, &resp.http_version_minor, (unsigned int*)&resp.status);
+            return ret != 3 ? -1 : 0;
+        }
+
+        const auto parse_header_impl = [](auto& msg, const size_t ndata, char* data) -> int
         {
             bool    first_line{true};
             bool    end_of_header{false};
@@ -714,13 +760,8 @@ namespace http
                 if (first_line)
                 {
                     first_line = false;
-                    req.method.resize(8, '\0');
-                    req.uri.resize(strlen(pos));
-                    const int ret = sscanf(pos, "%s %s HTTP/%i.%i", &req.method[0], &req.uri[0], &req.http_version_major, &req.http_version_minor);
-                    if (ret != 4)
+                    if (parse_start_line(msg, pos) < 0)
                         return -1;
-                    req.method.resize(strlen(req.method.c_str()));
-                    req.uri.resize(strlen(req.uri.c_str()));
                 }
 
                 // Handle header line
@@ -730,10 +771,7 @@ namespace http
                     if (kend == nullptr)
                         return -1;
                     
-                    header hdr;
-                    hdr.key   = field_enum(std::string_view(pos, kend-pos));
-                    hdr.value = std::string(kend+2, end-kend-2);
-                    req.headers.push_back(std::move(hdr));
+                    msg.add_header(field_enum(std::string_view(pos, kend-pos)), std::string_view(kend+2, end-kend-2));
                 }
 
                 // Handle end of header
@@ -745,9 +783,92 @@ namespace http
             }
 
             return std::distance(data, pos);
+        };
+
+        int parse_header(request& req, const size_t ndata, char* data)
+        {
+            return parse_header_impl(req, ndata, data);
+        }
+
+        int parse_header(response& resp, const size_t ndata, char* data)
+        {
+            return parse_header_impl(resp, ndata, data);
         }
 
 //----------------------------------------------------------------------------------------------------------------
+
+        const auto handle_empty = [](auto& msg)
+        {
+            remove_field(msg.headers, field::content_type);
+            remove_field(msg.headers, field::content_length);
+        };
+
+        const auto handle_content = [](auto& msg, const std::string& content)
+        {
+            // Add default Content type if empty
+            if (!contains(msg.headers, field::content_type))
+                msg.add_header(field::content_type, "text/plain");
+            
+            // Set Content length
+            auto it = find_field(msg.headers, field::content_length);
+            if (it == end(msg.headers))
+                msg.add_header(field::content_length, std::to_string(content.size()));
+            else
+                it->value = std::to_string(content.size());     
+        };
+
+        const auto handle_file = [](auto& msg)
+        {
+            // Content type - assume it's already set
+            if (!contains(msg.headers, field::content_type))
+                fprintf(stderr, "Content-Type is not set for file\n");
+        
+            // Content length
+            fseek(msg.content_file.get(), 0, SEEK_END);
+            const size_t file_size = ftell(msg.content_file.get());
+            fseek(msg.content_file.get(), 0, SEEK_SET);
+
+            auto it = find_field(msg.headers, field::content_length);
+            if (it == end(msg.headers))
+                msg.add_header(field::content_length, std::to_string(file_size));
+            else
+                it->value = std::to_string(file_size);
+        };
+
+        const auto serialize_header_final = [](auto& msg, std::string_view start_line, std::string& buf)
+        {
+            buf.append(start_line);
+
+            for (const auto& [k, v] : msg.headers)
+            {
+                buf.append(field_label(k));
+                buf.append(": ");
+                buf.append(v);
+                buf.append("\r\n");
+            }
+            buf.append("\r\n");
+        };
+
+        void serialize_header(request& req, std::string& buf)
+        {
+            // Set request line
+            const std::string status_str = format("%s %s HTTP/%i.%i\r\n", req.method.c_str(), req.uri.c_str(), req.http_version_major, req.http_version_minor);
+
+            // Add default connection string if empty
+            if (!contains(req.headers, field::connection))
+                req.add_header(field::connection, "close");
+
+            // Handle empty body
+            if (req.content.empty())
+                handle_empty(req);
+
+            // Handle string body
+            else if (!req.content.empty())
+                handle_content(req, req.content);
+
+            // Serialize
+            serialize_header_final(req, status_str, buf);
+        }
 
         void serialize_header(response& resp, std::string& buf)
         {
@@ -765,56 +886,18 @@ namespace http
 
             // Handle empty body
             if (resp.content_str.empty() && resp.content_file == nullptr)
-            {
-                remove_field(resp.headers, field::content_type);
-                remove_field(resp.headers, field::content_length);
-            }
+                handle_empty(resp);
 
             // Handle string body
             else if (!resp.content_str.empty())
-            {
-                // Add default Content type if empty
-                if (!contains(resp.headers, field::content_type))
-                    resp.add_header(field::content_type, "text/plain");
-                
-                // Set Content length
-                auto it = find_field(resp.headers, field::content_length);
-                if (it == end(resp.headers))
-                    resp.add_header(field::content_length, std::to_string(resp.content_str.size()));
-                else
-                    it->value = std::to_string(resp.content_str.size());                
-            }
+                handle_content(resp, resp.content_str);
 
             // Handle file body
             else if (resp.content_file)
-            {
-                // Content type - assume it's already set
-                if (!contains(resp.headers, field::content_type))
-                    fprintf(stderr, "Content-Type is not set for file\n");
-                
-                // Content length
-                fseek(resp.content_file.get(), 0, SEEK_END);
-                const size_t file_size = ftell(resp.content_file.get());
-                fseek(resp.content_file.get(), 0, SEEK_SET);
-
-                auto it = find_field(resp.headers, field::content_length);
-                if (it == end(resp.headers))
-                    resp.add_header(field::content_length, std::to_string(file_size));
-                else
-                    it->value = std::to_string(file_size);
-            }
+                handle_file(resp);
 
             // Serialize
-            buf.append(status_str);
-
-            for (const auto& [k, v] : resp.headers)
-            {
-                buf.append(field_label(k));
-                buf.append(": ");
-                buf.append(v);
-                buf.append("\r\n");
-            }
-            buf.append("\r\n");
+            serialize_header_final(resp, status_str, buf);
         }
 
 //----------------------------------------------------------------------------------------------------------------

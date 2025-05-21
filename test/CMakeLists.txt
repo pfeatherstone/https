@@ -27,9 +27,16 @@ target_link_libraries(http
   PUBLIC OpenSSL::SSL OpenSSL::Crypto)
 
 # Examples
-add_executable(example ${CMAKE_CURRENT_SOURCE_DIR}/example.cpp)
-target_compile_features(example PUBLIC cxx_std_20)
-target_link_options(example PUBLIC $<$<CONFIG:Release>:-s>)
-target_link_libraries(example 
+add_executable(server ${CMAKE_CURRENT_SOURCE_DIR}/server.cpp)
+target_compile_features(server PUBLIC cxx_std_20)
+target_link_options(server PUBLIC $<$<CONFIG:Release>:-s>)
+target_link_libraries(server 
+  PUBLIC Threads::Threads
+  PUBLIC http)
+
+add_executable(client ${CMAKE_CURRENT_SOURCE_DIR}/client.cpp)
+target_compile_features(client PUBLIC cxx_std_20)
+target_link_options(client PUBLIC $<$<CONFIG:Release>:-s>)
+target_link_libraries(client 
   PUBLIC Threads::Threads
   PUBLIC http)

@@ -26,6 +26,19 @@ namespace http
 //----------------------------------------------------------------------------------------------------------------
 
     template <
+      class AsyncReadStream, 
+      BOOST_ASIO_COMPLETION_TOKEN_FOR(void(boost::system::error_code, std::size_t)) CompletionToken = boost::asio::default_completion_token_t<typename AsyncReadStream::executor_type>
+    >
+    auto async_http_read (
+        AsyncReadStream&    sock,
+        response&           resp,
+        std::string&        buf,
+        CompletionToken&&   token = boost::asio::default_completion_token_t<typename AsyncReadStream::executor_type>()
+    );
+
+//----------------------------------------------------------------------------------------------------------------
+
+    template <
       class AsyncWriteStream, 
       BOOST_ASIO_COMPLETION_TOKEN_FOR(void(boost::system::error_code, std::size_t)) CompletionToken = boost::asio::default_completion_token_t<typename AsyncWriteStream::executor_type>
     >
@@ -46,6 +59,19 @@ namespace http
     auto async_http_write (
         AsyncWriteStream&   sock,
         response&           resp,
+        std::string&        buf,
+        CompletionToken&&   token = boost::asio::default_completion_token_t<typename AsyncWriteStream::executor_type>()
+    );
+
+//----------------------------------------------------------------------------------------------------------------
+
+    template <
+      class AsyncWriteStream, 
+      BOOST_ASIO_COMPLETION_TOKEN_FOR(void(boost::system::error_code, std::size_t)) CompletionToken = boost::asio::default_completion_token_t<typename AsyncWriteStream::executor_type>
+    >
+    auto async_http_write (
+        AsyncWriteStream&   sock,
+        request&            req,
         std::string&        buf,
         CompletionToken&&   token = boost::asio::default_completion_token_t<typename AsyncWriteStream::executor_type>()
     );
@@ -97,21 +123,26 @@ namespace http
 
     namespace details
     {
-        template<class AsyncReadStream>
+        std::string& get_content(request& req)      {return req.content;}
+        std::string& get_content(response& resp)    {return resp.content_str;}
+        FILE*        get_file(request& req)         {return nullptr;}
+        FILE*        get_file(response& resp)       {return resp.content_file.get();}
+
+        template<class AsyncReadStream, class Message>
         struct async_http_read_impl
         {
             AsyncReadStream&            sock;
-            request&                    req;
+            Message&                    msg;
             std::string&                buf;
             size_t                      total_read{0};
             size_t                      body_read{0};
             enum {header, parse, body}  state{header};
 
-            async_http_read_impl(AsyncReadStream& sock_, request& req_, std::string& buf_)
-            : sock{sock_}, req{req_}, buf{buf_}
+            async_http_read_impl(AsyncReadStream& sock_, Message& msg_, std::string& buf_)
+            : sock{sock_}, msg{msg_}, buf{buf_}
             {
                 buf.clear();
-                req.clear();
+                msg.clear();
             }
             
             template<class Self>
@@ -131,7 +162,7 @@ namespace http
                 // Parse
                 else if (state == parse)
                 {
-                    const int header_size = details::parse_header(req, nread, buf.data());
+                    const int header_size = details::parse_header(msg, nread, buf.data());
                     assert(header_size == nread);
 
                     // Header fail
@@ -144,18 +175,18 @@ namespace http
                         state = body;
                         total_read += buf.size();
 
-                        const auto it = req.find(field::content_length);
+                        const auto it = msg.find(field::content_length);
 
                         // Read body
-                        if (it != end(req.headers))
+                        if (it != end(msg.headers))
                         {
                             const size_t content_size   = std::stoul(it->value);
                             body_read                   = buf.size() - header_size;
                             const size_t remaining      = content_size - body_read;
                             assert(body_read <= content_size || "Reading into the next HTTP message or other bug. Either way, bug!");
                             
-                            req.content.resize(content_size);
-                            std::copy(begin(buf) + header_size, end(buf), begin(req.content));
+                            get_content(msg).resize(content_size);
+                            std::copy(begin(buf) + header_size, end(buf), begin(get_content(msg)));
                             
                             // Body already read
                             if (remaining == 0)
@@ -163,7 +194,7 @@ namespace http
 
                             // Read body
                             if (remaining > 0)
-                                boost::asio::async_read(sock, boost::asio::buffer(&req.content[body_read], remaining), std::move(self));
+                                boost::asio::async_read(sock, boost::asio::buffer(&get_content(msg)[body_read], remaining), std::move(self));
                         }
 
                         // Handle empty body
@@ -181,7 +212,7 @@ namespace http
                     body_read  += nread;
 
                     // Failed to read complete body
-                    if (body_read != req.content.size())
+                    if (body_read != get_content(msg).size())
                         self.complete(make_error_code(http_read_body_fail), total_read);
                     
                     // Read complete body
@@ -205,6 +236,23 @@ namespace http
     {
         return boost::asio::async_compose<CompletionToken, void(boost::system::error_code, std::size_t)> (
             details::async_http_read_impl{sock, req, buf},
+            token, sock
+        );
+    }
+
+    template <
+      class AsyncReadStream, 
+      BOOST_ASIO_COMPLETION_TOKEN_FOR(void(boost::system::error_code, std::size_t)) CompletionToken
+    >
+    inline auto async_http_read (
+        AsyncReadStream&    sock,
+        response&           resp,
+        std::string&        buf,
+        CompletionToken&&   token
+    )
+    {
+        return boost::asio::async_compose<CompletionToken, void(boost::system::error_code, std::size_t)> (
+            details::async_http_read_impl{sock, resp, buf},
             token, sock
         );
     }
@@ -279,20 +327,20 @@ namespace http
 
     namespace details
     {
-        template<class AsyncWriteStream>
+        template<class AsyncWriteStream, class Message>
         struct async_http_write_impl
         {
             AsyncWriteStream&           sock;
-            response&                   resp;
+            Message&                    msg;
             std::string&                buf;
             size_t                      total_written{0};
             enum {headers, body, done}  state{headers};
 
-            async_http_write_impl(AsyncWriteStream& sock_, response& resp_, std::string& buf_) 
-            : sock{sock_}, resp{resp_}, buf{buf_}
+            async_http_write_impl(AsyncWriteStream& sock_, Message& msg_, std::string& buf_) 
+            : sock{sock_}, msg{msg_}, buf{buf_}
             {
                 buf.clear();
-                details::serialize_header(resp, buf);
+                details::serialize_header(msg, buf);
             }
 
             template<class Self>
@@ -316,12 +364,12 @@ namespace http
                     total_written += nwritten;
 
                     // Write string
-                    if (!resp.content_str.empty())
-                        boost::asio::async_write(sock, boost::asio::buffer(resp.content_str), std::move(self));
+                    if (!get_content(msg).empty())
+                        boost::asio::async_write(sock, boost::asio::buffer(get_content(msg)), std::move(self));
 
                     // Write file
-                    else if (resp.content_file)
-                        async_write_file(sock, resp.content_file.get(), buf, 1024, std::move(self));
+                    else if (get_file(msg))
+                        async_write_file(sock, get_file(msg), buf, 1024, std::move(self));
                 
                     // Done
                     else
@@ -351,6 +399,25 @@ namespace http
     {
         return boost::asio::async_compose<CompletionToken, void(boost::system::error_code, std::size_t)> (
             details::async_http_write_impl{sock, resp, buf},
+            token, sock
+        );
+    }
+
+//----------------------------------------------------------------------------------------------------------------
+
+    template <
+      class AsyncWriteStream, 
+      BOOST_ASIO_COMPLETION_TOKEN_FOR(void(boost::system::error_code, std::size_t)) CompletionToken
+    >
+    inline auto async_http_write (
+        AsyncWriteStream&   sock,
+        request&            req,
+        std::string&        buf,
+        CompletionToken&&   token
+    )
+    {
+        return boost::asio::async_compose<CompletionToken, void(boost::system::error_code, std::size_t)> (
+            details::async_http_write_impl{sock, req, buf},
             token, sock
         );
     }
