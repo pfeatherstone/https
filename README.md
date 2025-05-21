@@ -40,7 +40,7 @@ $ ./build/client
 ## Roadmap
 
 - [ ] Documentation
-- [ ] HTTP(s) and WS(s) clients
+- [ ] WS(s) clients
 - [ ] Unit tests
 
 ## Questions
