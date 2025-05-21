@@ -173,9 +173,9 @@ void handle_request (
 )
 {
     // Make sure we can handle the method
-    if( req.method != "GET"  &&
-        req.method != "POST" &&
-        req.method != "PUT")  
+    if( req.verb != http::GET  &&
+        req.verb != http::POST &&
+        req.verb != http::PUT)  
         return http_bad_request(req, resp, "Unknown HTTP-method");
 
     // Check the HTTP request is authorized

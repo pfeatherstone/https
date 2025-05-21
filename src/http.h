@@ -11,6 +11,27 @@ namespace http
 
 //----------------------------------------------------------------------------------------------------------------
 
+    enum verb_type : unsigned int
+    {
+        UNKNOWN_VERB = 0,
+        GET,
+        HEAD,
+        POST,
+        PUT,
+        DELETE,
+        CONNECT,
+        OPTIONS,
+        TRACE,
+        PATCH
+    };
+
+//----------------------------------------------------------------------------------------------------------------
+
+    std::string_view verb_label(verb_type v);
+    verb_type        verb_enum(std::string_view);
+
+//----------------------------------------------------------------------------------------------------------------
+
     enum field : unsigned int
     {
         unknown_field = 0,
@@ -500,10 +521,10 @@ namespace http
 
     struct request
     {
-        std::string         method;
-        std::string         uri;
+        verb_type           verb;
         int                 http_version_major{};
         int                 http_version_minor{};
+        std::string         uri;
         std::vector<header> headers;
         std::string         content;
 

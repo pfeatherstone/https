@@ -1,3 +1,4 @@
+#include <iostream>
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/connect.hpp>
 #include <boost/asio/detached.hpp>
@@ -8,6 +9,7 @@
 #include <boost/asio/ssl/context.hpp>
 #include <boost/asio/ssl/stream.hpp>
 #include <http_async.h>
+#include "yyjson.h"
 
 //----------------------------------------------------------------------------------------------------------------
 //----------------------------------------------------------------------------------------------------------------
@@ -29,11 +31,23 @@ using awaitable_strand  = boost::asio::awaitable<void, boost::asio::strand<boost
 //----------------------------------------------------------------------------------------------------------------
 //----------------------------------------------------------------------------------------------------------------
 
-//----------------------------------------------------------------------------------------------------------------
-//----------------------------------------------------------------------------------------------------------------
-// HTTP session
-//----------------------------------------------------------------------------------------------------------------
-//----------------------------------------------------------------------------------------------------------------
+void print_header(const http::response& resp)
+{
+    printf("\tstatus : %u - %s\n", resp.status, status_label(resp.status).data());
+    printf("\theaders:\n");
+    for (const auto& [k,v] : resp.headers)
+        printf("\t\t%s : %s\n", field_label(k).data(), v.c_str());
+}
+
+void print_json_body(const http::response& resp)
+{
+    printf("\tBody:\n");
+    yyjson_doc *doc = yyjson_read(resp.content_str.c_str(), resp.content_str.size(), 0);
+    if (doc)
+        yyjson_write_fp(stdout, doc, YYJSON_WRITE_PRETTY, nullptr, nullptr);
+    yyjson_doc_free(doc);
+    printf("\n");
+}
 
 awaitable_strand http_session(std::string_view host)
 {
@@ -51,17 +65,21 @@ awaitable_strand http_session(std::string_view host)
         size_t          ret{};
 
         // Write request
-        req.method = "GET";
+        req.verb   = http::GET;
         req.uri    = "/get";
         req.http_version_major = req.http_version_minor = 1;
         req.add_header(http::host, host);
-        // req.add_header(http::accept, "*/*");
         ret = co_await http::async_http_write(sock, req, buf);
         printf("Request sent\n");
 
         // Receive response
         ret = co_await http::async_http_read(sock, resp, buf);
-        printf("Response received\n");
+        printf("Response received:\n");
+
+        // Print response
+        print_header(resp);
+        if (auto it = resp.find(http::content_type); it != end(resp.headers) && it->contains_value("application/json"))
+            print_json_body(resp);   
     }
     catch(const boost::system::system_error& e)
     {

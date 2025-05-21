@@ -44,6 +44,35 @@ namespace http
 
 //----------------------------------------------------------------------------------------------------------------
 
+    constexpr std::string_view VERBS[] = {
+        "UNKNOWN",
+        "GET",
+        "HEAD",
+        "POST",
+        "PUT",
+        "DELETE",
+        "CONNECT",
+        "OPTIONS",
+        "TRACE",
+        "PATCH"
+    };
+
+    std::string_view verb_label(verb_type v)
+    {
+        return VERBS[v];
+    }
+
+    verb_type verb_enum(std::string_view str)
+    {
+        for (unsigned int i = 0 ; i < std::size(VERBS) ; ++i)
+            if (VERBS[i] == str)
+                return (verb_type)i;
+        fprintf(stderr, "Could not find verb enum for %.*s\n", (int)str.size(), str.data());
+        return UNKNOWN_VERB;
+    }
+
+//----------------------------------------------------------------------------------------------------------------
+
     constexpr std::string_view FIELDS[] = {
         "<unknown-field>",
         "a-im",
@@ -634,12 +663,12 @@ namespace http
 
     void request::clear()
     {
-        method.clear();
         uri.clear();
         headers.clear();
         content.clear();
         http_version_major = 0;
         http_version_minor = 0;
+        verb = {};
     }
 
     void request::add_header(field f, std::string_view value)
@@ -724,12 +753,12 @@ namespace http
 
         int parse_start_line(request& req, const char* line)
         {
-            req.method.resize(8, '\0');
+            char method[8] = {0};
             req.uri.resize(strlen(line));
-            const int ret = sscanf(line, "%s %s HTTP/%i.%i", &req.method[0], &req.uri[0], &req.http_version_major, &req.http_version_minor);
+            const int ret = sscanf(line, "%s %s HTTP/%i.%i", method, &req.uri[0], &req.http_version_major, &req.http_version_minor);
             if (ret != 4)
                 return -1;
-            req.method.resize(strlen(req.method.c_str()));
+            req.verb = verb_enum(method);
             req.uri.resize(strlen(req.uri.c_str()));
             return 0;
         }
@@ -852,7 +881,7 @@ namespace http
         void serialize_header(request& req, std::string& buf)
         {
             // Set request line
-            const std::string status_str = format("%s %s HTTP/%i.%i\r\n", req.method.c_str(), req.uri.c_str(), req.http_version_major, req.http_version_minor);
+            const std::string status_str = format("%s %s HTTP/%i.%i\r\n", verb_label(req.verb).data(), req.uri.c_str(), req.http_version_major, req.http_version_minor);
 
             // Add default connection string if empty
             if (!contains(req.headers, field::connection))

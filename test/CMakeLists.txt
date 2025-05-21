@@ -34,7 +34,7 @@ target_link_libraries(server
   PUBLIC Threads::Threads
   PUBLIC http)
 
-add_executable(client ${CMAKE_CURRENT_SOURCE_DIR}/client.cpp)
+add_executable(client ${CMAKE_CURRENT_SOURCE_DIR}/client.cpp ${CMAKE_CURRENT_SOURCE_DIR}/yyjson.c)
 target_compile_features(client PUBLIC cxx_std_20)
 target_link_options(client PUBLIC $<$<CONFIG:Release>:-s>)
 target_link_libraries(client 
