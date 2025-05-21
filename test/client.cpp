@@ -32,15 +32,15 @@ using awaitable_strand  = boost::asio::awaitable<void, boost::asio::strand<boost
 
 void print_header(const http::response& resp)
 {
-    printf("\tstatus : %u - %s\n", resp.status, status_label(resp.status).data());
-    printf("\theaders:\n");
+    printf("Status : %u - %s\n", resp.status, status_label(resp.status).data());
+    printf("Headers:\n");
     for (const auto& [k,v] : resp.headers)
-        printf("\t\t%s : %s\n", field_label(k).data(), v.c_str());
+        printf("\t%s : %s\n", field_label(k).data(), v.c_str());
 }
 
 void print_json_body(const http::response& resp)
 {
-    printf("\tBody:\n");
+    printf("Body:\n");
     yyjson_doc *doc = yyjson_read(resp.content_str.c_str(), resp.content_str.size(), 0);
     if (doc)
         yyjson_write_fp(stdout, doc, YYJSON_WRITE_PRETTY, nullptr, nullptr);
@@ -55,25 +55,21 @@ awaitable_strand http_session(std::string_view host)
         // Connect
         tcp_socket      sock(co_await boost::asio::this_coro::executor);
         tcp::resolver   resolver(sock.get_executor());
-        co_await boost::asio::async_connect(sock, co_await resolver.async_resolve(host, "80"));
-        printf("Connected\n");
-
         http::request   req;
         http::response  resp;
         std::string     buf;
         size_t          ret{};
 
-        // Write request
+        // Prepare request
         req.verb   = http::GET;
         req.uri    = "/get";
         req.http_version_major = req.http_version_minor = 1;
         req.add_header(http::host, host);
-        ret = co_await http::async_http_write(sock, req, buf);
-        printf("Request sent\n");
 
-        // Receive response
-        ret = co_await http::async_http_read(sock, resp, buf);
-        printf("Response received:\n");
+        // Async IO
+        co_await boost::asio::async_connect(sock, co_await resolver.async_resolve(host, "80"));
+        ret = co_await http::async_http_write(sock, req,  buf);
+        ret = co_await http::async_http_read(sock,  resp, buf);
 
         // Print response
         print_header(resp);
@@ -100,6 +96,4 @@ int main(int argc, char* argv[])
     {
         printf("Exception: %s\n", e.what());
     }
-
-    printf("Done\n");
 }
