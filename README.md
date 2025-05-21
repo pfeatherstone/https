@@ -38,7 +38,7 @@ $ ./build/client
 ``` 
 
 ## Roadmap
-
+- [ ] Chunked encoding
 - [ ] Documentation
 - [ ] WS(s) clients
 - [ ] Unit tests
