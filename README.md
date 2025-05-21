@@ -12,7 +12,8 @@ Copy the contents of `src` into your project then link to:
 ## Examples
 
 Try out:
-- `test/example.cpp`
+- `test/server.cpp`
+- `test/client.cpp`
 
 Build using:
 
@@ -21,15 +22,20 @@ $ cmake ./test -B build -DCMAKE_BUILD_TYPE=Release
 $ cmake --build build --parallel
 ```
 
-Try using:
+Run:
 
 ```bash
-$ ./build/example [--use_tls]
+$ ./build/server [--use_tls]
 ```
 
 Open a browser at http(s)://localhost:8000. 
-Note, the example showcases basic authentication. The user is "Tommy" and the password is "Aldridge". 
+Note, the example showcases basic authentication. The user is "Tommy" and the password is "Aldridge".
 
+Run:
+
+```bash
+$ ./build/client
+``` 
 
 ## Roadmap
 
