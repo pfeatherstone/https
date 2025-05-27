@@ -1,15 +1,15 @@
 #include <chrono>
+#include <boost/compat/bind_front.hpp>
 #include <boost/asio/cancel_after.hpp>
-#include <boost/asio/co_spawn.hpp>
 #include <boost/asio/connect.hpp>
 #include <boost/asio/detached.hpp>
-#include <boost/asio/dispatch.hpp>
 #include <boost/asio/io_context.hpp>
+#include <boost/asio/spawn.hpp>
 #include <boost/asio/strand.hpp>
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/asio/version.hpp>
 #include <http_async.h>
-#include "CLI11.hpp"
+#include "extra/CLI11.hpp"
 
 //----------------------------------------------------------------------------------------------------------------
 //----------------------------------------------------------------------------------------------------------------
@@ -17,13 +17,12 @@
 //----------------------------------------------------------------------------------------------------------------
 //----------------------------------------------------------------------------------------------------------------
 
-using boost::asio::deferred;
+using boost::compat::bind_front;
 using boost::asio::detached;
 using boost::asio::ip::tcp;
 using boost::asio::make_strand;
-using tcp_socket        = boost::asio::basic_stream_socket<tcp, boost::asio::strand<boost::asio::io_context::executor_type>>;
-using awaitable         = boost::asio::awaitable<void, boost::asio::io_context::executor_type>;
-using awaitable_strand  = boost::asio::awaitable<void, boost::asio::strand<boost::asio::io_context::executor_type>>;
+using tcp_socket            = boost::asio::basic_stream_socket<tcp, boost::asio::strand<boost::asio::io_context::executor_type>>;
+using yield_context_strand  = boost::asio::basic_yield_context<boost::asio::strand<boost::asio::io_context::executor_type>>;
 using namespace std::chrono_literals;
 
 //----------------------------------------------------------------------------------------------------------------
@@ -32,22 +31,22 @@ using namespace std::chrono_literals;
 //----------------------------------------------------------------------------------------------------------------
 //----------------------------------------------------------------------------------------------------------------
 
-awaitable_strand ws_session(std::string host, uint16_t port, std::string msg)
+void ws_session(std::string host, uint16_t port, std::string msg, yield_context_strand yield)
 {
     try
     {
         // Connect
-        tcp_socket          sock(co_await boost::asio::this_coro::executor);
+        tcp_socket          sock(yield.get_executor());
         tcp::resolver       resolver(sock.get_executor());
         std::vector<char>   buf(begin(msg), end(msg));
         size_t              ret{};
 
         // Async IO
-        co_await boost::asio::async_connect(sock, co_await resolver.async_resolve(host, std::to_string(port)), boost::asio::cancel_after(5s, deferred));
-        co_await http::async_ws_handshake(sock, host, "/ws");
-        ret = co_await http::async_ws_write(sock, buf, true, false);
-        ret = co_await http::async_ws_read(sock, buf, false);
-        co_await http::async_ws_close(sock, http::ws_going_away, false);
+        boost::asio::async_connect(sock, resolver.async_resolve(host, std::to_string(port), boost::asio::cancel_after(5s, yield)), yield);
+        http::async_ws_handshake(sock, host, "/ws", yield);
+        ret = http::async_ws_write(sock, buf, true, false, yield);
+        ret = http::async_ws_read(sock, buf, false, yield);
+        http::async_ws_close(sock, http::ws_going_away, false, yield);
 
         // Print echo
         printf("Server echoed back\n\"%.*s\"\n", (int)buf.size(), buf.data());
@@ -64,13 +63,11 @@ int main(int argc, char* argv[])
     std::string host;
     uint16_t    port;
     std::string msg;
-    bool        use_tls{false};
     CLI::App app{"WebSocket echo client"};
     try{
         app.add_option("--host", host, "Host or IP address of WebSocket server")->required();
         app.add_option("--port", port, "Port of WebSocket server")->required();
         app.add_option("--msg",  msg,  "Message to be echoed back by server")->required();
-        app.add_flag("--use_tls", use_tls, "Use TLS");
         app.parse(argc, argv);
     } catch (const CLI::ParseError& e) {return app.exit(e);}
     
@@ -78,7 +75,7 @@ int main(int argc, char* argv[])
 
     try
     {
-        co_spawn(make_strand(ioc), ws_session(host, port, msg), detached);
+        boost::asio::spawn(make_strand(ioc), bind_front(ws_session, host, port, msg), detached);
         ioc.run();
     }
     catch (const std::exception& e)
