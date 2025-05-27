@@ -42,7 +42,7 @@ void ws_session(std::string host, uint16_t port, std::string msg, yield_context_
         size_t              ret{};
 
         // Async IO
-        boost::asio::async_connect(sock, resolver.async_resolve(host, std::to_string(port), boost::asio::cancel_after(5s, yield)), yield);
+        boost::asio::async_connect(sock, resolver.async_resolve(host, std::to_string(port), yield), boost::asio::cancel_after(5s, yield));
         http::async_ws_handshake(sock, host, "/ws", yield);
         ret = http::async_ws_write(sock, buf, true, false, yield);
         ret = http::async_ws_read(sock, buf, false, yield);
