@@ -1,5 +1,6 @@
 #pragma once
 
+#include <boost/asio/version.hpp>
 #include <boost/asio/compose.hpp>
 #include <boost/asio/read.hpp>
 #include <boost/asio/read_until.hpp>
@@ -79,6 +80,19 @@ namespace http
 //----------------------------------------------------------------------------------------------------------------
 
     template <
+      class AsyncReadWriteStream, 
+      BOOST_ASIO_COMPLETION_TOKEN_FOR(void(boost::system::error_code)) CompletionToken = boost::asio::default_completion_token_t<typename AsyncReadWriteStream::executor_type>
+    >
+    auto async_ws_handshake (
+        AsyncReadWriteStream&   sock,
+        std::string             host,
+        std::string             uri,
+        CompletionToken&&       token = boost::asio::default_completion_token_t<typename AsyncReadWriteStream::executor_type>()
+    );
+
+//----------------------------------------------------------------------------------------------------------------
+
+    template <
       class AsyncWriteStream, 
       BOOST_ASIO_COMPLETION_TOKEN_FOR(void(boost::system::error_code, std::size_t)) CompletionToken = boost::asio::default_completion_token_t<typename AsyncWriteStream::executor_type>
     >
@@ -113,6 +127,19 @@ namespace http
         bool                is_text,
         bool                is_server,
         CompletionToken&&   token = boost::asio::default_completion_token_t<typename AsyncWriteStream::executor_type>()
+    );
+
+//----------------------------------------------------------------------------------------------------------------
+
+    template <
+      class AsyncStream, 
+      BOOST_ASIO_COMPLETION_TOKEN_FOR(void(boost::system::error_code)) CompletionToken = boost::asio::default_completion_token_t<typename AsyncStream::executor_type>
+    >
+    auto async_ws_close (
+        AsyncStream&        sock,
+        ws_code             reason,
+        bool                is_server,
+        CompletionToken&&   token = boost::asio::default_completion_token_t<typename AsyncStream::executor_type>()
     );
 
 //----------------------------------------------------------------------------------------------------------------
@@ -223,6 +250,8 @@ namespace http
         };
     }
 
+//----------------------------------------------------------------------------------------------------------------
+
     template <
       class AsyncReadStream, 
       BOOST_ASIO_COMPLETION_TOKEN_FOR(void(boost::system::error_code, std::size_t)) CompletionToken
@@ -239,6 +268,8 @@ namespace http
             token, sock
         );
     }
+
+//----------------------------------------------------------------------------------------------------------------
 
     template <
       class AsyncReadStream, 
@@ -386,6 +417,8 @@ namespace http
         };
     }
 
+//----------------------------------------------------------------------------------------------------------------
+
     template <
       class AsyncWriteStream, 
       BOOST_ASIO_COMPLETION_TOKEN_FOR(void(boost::system::error_code, std::size_t)) CompletionToken
@@ -426,22 +459,141 @@ namespace http
 
     namespace details 
     {
+        inline std::string compute_sec_ws_accept(std::string_view sec_ws_key)
+        {
+            constexpr std::string_view magic = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+            char         hash[EVP_MAX_MD_SIZE];
+            unsigned int hash_len{0};
+            EVP_MD_CTX *mdctx = EVP_MD_CTX_new();
+            EVP_DigestInit_ex(mdctx, EVP_sha1(), NULL);
+            EVP_DigestUpdate(mdctx, sec_ws_key.data(), sec_ws_key.size());
+            EVP_DigestUpdate(mdctx, magic.data(), magic.size());
+            EVP_DigestFinal_ex(mdctx, (unsigned char*)hash, &hash_len);
+            EVP_MD_CTX_free(mdctx);
+            return base64_encode(std::string_view{hash, hash_len});
+        }
+
+        template<class AsyncStream>
+        struct async_ws_handshake_impl
+        {
+            AsyncStream&                    sock;
+            std::string                     uri;
+            std::string                     host;
+            char                            nonce[16]   = {0};
+            std::unique_ptr<std::string>    buf         = std::make_unique<std::string>();
+            std::unique_ptr<request>        req         = std::make_unique<request>();
+            std::unique_ptr<response>       reply       = std::make_unique<response>();
+            enum {send_request, read_response, parse_response} state{send_request};
+
+            async_ws_handshake_impl (
+                AsyncStream&    sock_, 
+                std::string     uri_, 
+                std::string     host_
+            ) : sock{sock_}, 
+                uri{std::move(uri_)},
+                host{std::move(host_)}
+            {
+            }
+
+            template<class Self>
+            void operator()(Self& self, boost::system::error_code error = {}, std::size_t ntransferred = 0)
+            {
+                // Error
+                if (error)
+                    self.complete(error);
+
+                // Send request
+                else if (state == send_request)
+                {
+                    state = read_response;
+
+                    for (size_t i{0} ; i < 16 ; ++i)
+                        nonce[i] = std::rand() % 0xff;
+
+                    req->verb = GET;
+                    req->uri  = uri;
+                    req->http_version_major = req->http_version_minor = 1;
+                    req->add_header(field::host,                  host);
+                    req->add_header(field::user_agent,            "Boost::asio " + std::to_string(BOOST_ASIO_VERSION));
+                    req->add_header(field::connection,            "upgrade");
+                    req->add_header(field::upgrade,               "websocket");
+                    req->add_header(field::sec_websocket_version, "13");
+                    req->add_header(field::sec_websocket_key,     base64_encode(std::string_view(nonce, 16)));
+
+                    async_http_write(sock, *req, *buf, std::move(self));
+                }
+
+                // Read respone
+                else if (state == read_response)
+                {
+                    state = parse_response;
+                    async_http_read(sock, *reply, *buf, std::move(self));
+                }
+
+                // Parse response
+                else
+                {
+                    // Check valid response status code
+                    if (reply->status != status_type::switching_protocols)
+                        self.complete(make_error_code(ws_handshake_bad_status));
+
+                    // Check connection and upgrade fields
+                    else if (!reply->is_websocket_response())
+                        self.complete(make_error_code(ws_handshake_bad_headers));
+
+                    // Check Sec-WebSocket-Accept
+                    else
+                    {
+                        auto sec_ws_accept = reply->find(field::sec_websocket_accept);
+
+                        if (sec_ws_accept == end(reply->headers))
+                            self.complete(make_error_code(ws_handshake_missing_seq_accept));
+                        else if (sec_ws_accept->value != compute_sec_ws_accept(base64_encode(std::string_view(nonce, 16))))
+                            self.complete(make_error_code(ws_handshake_bad_sec_accept));
+                        else
+                            self.complete({});
+                    }
+                }
+            }
+        };
+    }
+
+    template <
+      class AsyncReadWriteStream, 
+      BOOST_ASIO_COMPLETION_TOKEN_FOR(void(boost::system::error_code)) CompletionToken
+    >
+    inline auto async_ws_handshake (
+        AsyncReadWriteStream&   sock,
+        std::string             host,
+        std::string             uri,
+        CompletionToken&&       token
+    )
+    {
+        return boost::asio::async_compose<CompletionToken, void(boost::system::error_code)> (
+            details::async_ws_handshake_impl{sock, std::move(host), std::move(uri)},
+            token, sock
+        ); 
+    }
+
+//----------------------------------------------------------------------------------------------------------------
+
+
+    namespace details 
+    {
         template<class AsyncWriteStream>
         struct async_ws_accept_impl
         {
             AsyncWriteStream&               sock;
             request                         req;
-            std::unique_ptr<std::string>    buf;
-            std::unique_ptr<response>       reply;
+            std::unique_ptr<std::string>    buf{std::make_unique<std::string>()};
+            std::unique_ptr<response>       reply{std::make_unique<response>()};
             enum {starting, writing}        state{starting};
 
             async_ws_accept_impl (
-                AsyncWriteStream&   sock_, 
-                request             req_
-            ) : sock{sock_}, 
-                req{std::move(req_)},
-                buf{std::make_unique<std::string>()},
-                reply{std::make_unique<response>()} 
+                AsyncWriteStream& sock_,
+                request           req_
+            ) : sock{sock_},
+                req{std::move(req_)}
             {
             }
 
@@ -469,24 +621,14 @@ namespace http
                     // Got key
                     else
                     {
-                        // Sec-WebSocket-Accept
-                        constexpr std::string_view magic = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
-                        char            hash[EVP_MAX_MD_SIZE];
-                        unsigned int    hash_len{0};
-                        EVP_MD_CTX *mdctx = EVP_MD_CTX_new();
-                        EVP_DigestInit_ex(mdctx, EVP_sha1(), NULL);
-                        EVP_DigestUpdate(mdctx, sec_ws_key->value.data(), sec_ws_key->value.size());
-                        EVP_DigestUpdate(mdctx, magic.data(), magic.size());
-                        EVP_DigestFinal_ex(mdctx, (unsigned char*)hash, &hash_len);
-                        EVP_MD_CTX_free(mdctx);
-
                         // Send response
                         reply->status               = status_type::switching_protocols;
                         reply->http_version_major   = req.http_version_major;
                         reply->http_version_minor   = req.http_version_minor;
+                        reply->add_header(field::server,        "Boost::asio " + std::to_string(BOOST_ASIO_VERSION));
                         reply->add_header(field::upgrade,       "websocket");
                         reply->add_header(field::connection,    "Upgrade");
-                        reply->add_header(field::sec_websocket_accept, base64_encode(std::string_view{hash, hash_len}));
+                        reply->add_header(field::sec_websocket_accept, compute_sec_ws_accept(sec_ws_key->value));
                         async_http_write(sock, *reply, *buf, std::move(self));
                     }
                 }
@@ -552,14 +694,14 @@ namespace http
 
         template <
           class AsyncWriteStream, 
-          BOOST_ASIO_COMPLETION_TOKEN_FOR(void(boost::system::error_code, std::size_t)) CompletionToken = boost::asio::default_completion_token_t<typename AsyncWriteStream::executor_type>
+          BOOST_ASIO_COMPLETION_TOKEN_FOR(void(boost::system::error_code, std::size_t)) CompletionToken
         >
         inline auto async_ws_write (
             AsyncWriteStream&   sock,
             std::vector<char>&  buf,
             websocket_opcode    opcode,
             bool                do_mask,
-            CompletionToken&&   token = boost::asio::default_completion_token_t<typename AsyncWriteStream::executor_type>()
+            CompletionToken&&   token
         )
         {
             // Header
@@ -623,13 +765,13 @@ namespace http
                 mask_key[2] = std::rand() % 0xff;
                 mask_key[3] = std::rand() % 0xff;
 
-                // Mask
-                for (size_t i = hdr_len ; i < buf.size() ; ++i)
-                    buf[i] ^= mask_key[i%4];
-                
                 // Write mask key
-                memcpy(mask_key, &buf[off], 4);
+                memcpy(&buf[off], mask_key, 4);
                 off += 4;
+
+                // Mask
+                for (size_t i = 0 ; i < pay_len ; ++i)
+                    buf[i+off] ^= mask_key[i%4];
             }
 
             return boost::asio::async_write(sock, boost::asio::buffer(buf), std::forward<CompletionToken>(token));
@@ -663,6 +805,9 @@ namespace http
 
     namespace details 
     {
+
+//----------------------------------------------------------------------------------------------------------------
+
         template<class AsyncReadStream>
         struct async_ws_read_one_impl
         {
@@ -789,8 +934,8 @@ namespace http
                     // Un-mask if necessary
                     if (is_masked)
                     {
-                        for (size_t i = offset ; i < buf.size() ; ++i)
-                            buf[i] ^= mask_key[i%4];
+                        for (size_t i = 0 ; i < paylen ; ++i)
+                            buf[i+offset] ^= mask_key[i%4];
                     }
 
                     // Move offset forward
@@ -813,12 +958,12 @@ namespace http
 
         template <
           class AsyncReadStream, 
-          BOOST_ASIO_COMPLETION_TOKEN_FOR(void(boost::system::error_code, websocket_opcode)) CompletionToken = boost::asio::default_completion_token_t<typename AsyncReadStream::executor_type>
+          BOOST_ASIO_COMPLETION_TOKEN_FOR(void(boost::system::error_code, websocket_opcode)) CompletionToken
         >
         inline auto async_ws_read_one (
             AsyncReadStream&    sock,
             std::vector<char>&  buf,
-            CompletionToken&&   token = boost::asio::default_completion_token_t<typename AsyncReadStream::executor_type>()
+            CompletionToken&&   token
         )
         {
             return boost::asio::async_compose<CompletionToken, void(boost::system::error_code, websocket_opcode)> (
@@ -826,16 +971,166 @@ namespace http
                 token, sock
             );
         }
-    
+
 //----------------------------------------------------------------------------------------------------------------
 
+        ws_code parse_ws_code(std::vector<char>& buf)
+        {
+            assert(buf.size() >= 2);
+            uint16_t code{};
+            memcpy(&code, &buf[0], 2);
+            code = ntohs(code);
+            return static_cast<ws_code>(code);
+        }
+
+        void serialize_ws_code(std::vector<char>& buf, ws_code code)
+        {
+            buf.resize(2);
+            const uint16_t tmp = htons(code);
+            memcpy(&buf[0], &tmp, 2);
+        }
+
+        template<class AsyncStream>
+        struct async_ws_close_impl
+        {
+            AsyncStream&                        sock;
+            ws_code                             reason;
+            bool                                read_response;
+            bool                                is_server;
+            std::unique_ptr<std::vector<char>>  buf{std::make_unique<std::vector<char>>()};
+            enum {writing, reading, parsing, done} state{writing};
+
+            async_ws_close_impl (
+                AsyncStream&    sock_,
+                ws_code         reason_,
+                bool            read_response_,
+                bool            is_server_
+            ) : sock{sock_},
+                reason{reason_},
+                read_response{read_response_},
+                is_server{is_server_}
+            {
+            }
+
+            template<class Self>
+            void run(Self& self, boost::system::error_code error, size_t bytes_transferred, websocket_opcode code)
+            {
+                // Error
+                if (error)
+                    self.complete(error);
+
+                // Write first CLOSE frame
+                if (state == writing)
+                {
+                    state = read_response ? reading : done;
+                    serialize_ws_code(*buf, reason);
+                    async_ws_write(sock, *buf, WS_OPCODE_CLOSE, !is_server, std::move(self));
+                }
+
+                // Read echoed CLOSE frame
+                else if (state == reading)
+                {
+                    state = parsing;
+                    async_ws_read_one(sock, *buf, std::move(self));
+                }
+
+                // Check echoed CLOSE frame
+                else if (state == parsing)
+                {
+                    if (code != WS_OPCODE_CLOSE)
+                        self.complete(make_error_code(ws_closing_handshake_non_matching_opcode));
+                    
+                    else
+                    {
+                        const ws_code reason_echoed = parse_ws_code(*buf);
+
+                        if (reason != reason_echoed)
+                            self.complete(make_error_code(ws_closing_handshake_non_matching_reason));
+                        else
+                            self.complete({});
+                    }
+                }
+
+                // We are done
+                else
+                {
+                    self.complete({});
+                }
+            }
+
+            template<class Self>
+            void operator()(Self& self)
+            {
+                run(self, {}, 0, WS_OPCODE_CONTINUATION);
+            }
+
+            template<class Self>
+            void operator()(Self& self, boost::system::error_code error, size_t bytes_transferred)
+            {
+                run(self, error, bytes_transferred, WS_OPCODE_CONTINUATION);
+            }
+
+            template<class Self>
+            void operator()(Self& self, boost::system::error_code error, websocket_opcode code)
+            {
+                run(self, error, 0, code);
+            }
+        };
+
+//----------------------------------------------------------------------------------------------------------------
+
+        template <
+          class AsyncStream, 
+          BOOST_ASIO_COMPLETION_TOKEN_FOR(void(boost::system::error_code)) CompletionToken
+        >
+        inline auto async_ws_close_one (
+            AsyncStream&        sock,
+            ws_code             reason,
+            bool                is_server,
+            CompletionToken&&   token
+        )
+        {
+            return boost::asio::async_compose<CompletionToken, void(boost::system::error_code)> (
+                async_ws_close_impl{sock, reason, false, is_server},
+                token, sock
+            );
+        }
+
+//----------------------------------------------------------------------------------------------------------------
+
+    }
+
+//----------------------------------------------------------------------------------------------------------------
+
+    template <
+      class AsyncStream, 
+      BOOST_ASIO_COMPLETION_TOKEN_FOR(void(boost::system::error_code)) CompletionToken
+    >
+    inline auto async_ws_close (
+        AsyncStream&        sock,
+        ws_code             reason,
+        bool                is_server,
+        CompletionToken&&   token
+    )
+    {
+        return boost::asio::async_compose<CompletionToken, void(boost::system::error_code)> (
+            details::async_ws_close_impl{sock, reason, true, is_server},
+            token, sock
+        );
+    }
+
+//----------------------------------------------------------------------------------------------------------------
+
+    namespace details
+    {
         template<class AsyncReadStream>
         struct async_ws_read_impl
         {
             AsyncReadStream&    sock;
             std::vector<char>&  buf;
             bool                is_server;
-            enum {reading, parse} state{reading};
+            ws_code             closing_code;
+            enum {reading, parse, closing} state{reading};
 
             async_ws_read_impl(AsyncReadStream& sock_, std::vector<char>& buf_, bool is_server_)
             : sock{sock_}, buf{buf_}, is_server{is_server_}
@@ -860,6 +1155,7 @@ namespace http
                 // Parse
                 else if (state == parse)
                 {
+                    uint16_t reason{};
                     switch(code)
                     {
                     case WS_OPCODE_DATA_TEXT:
@@ -869,7 +1165,9 @@ namespace http
                         self.complete({}, false);
                         break;
                     case WS_OPCODE_CLOSE:
-                        self.complete(make_error_code(ws_closed), {});
+                        state = closing;
+                        closing_code = parse_ws_code(buf);
+                        async_ws_close_one(sock, closing_code, is_server, std::move(self));
                         break;
                     case WS_OPCODE_PING:
                         state = reading;
@@ -884,12 +1182,24 @@ namespace http
                         break;
                     }
                 }
+
+                // Closing
+                else if (state == closing)
+                {
+                    self.complete(make_error_code(closing_code), {});
+                }
             }
 
             template<class Self>
             void operator()(Self& self)
             {
                 run(self, {}, 0, WS_OPCODE_CONTINUATION);
+            }
+
+            template<class Self>
+            void operator()(Self& self, boost::system::error_code error)
+            {
+                run(self, error, 0, WS_OPCODE_CONTINUATION);
             }
 
             template<class Self>

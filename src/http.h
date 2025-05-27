@@ -474,20 +474,6 @@ namespace http
         loop_detected                       = 508,
         not_extended                        = 510,
         network_authentication_required     = 511,
-
-        // websocket status codes
-        normal_closure                      = 1000,
-        going_away                          = 1001,
-        protocol_error                      = 1002,
-        unsupported_data                    = 1003,
-        no_code_received                    = 1005,
-        connection_closed_abnormally        = 1006,
-        invalid_payload_data                = 1007,
-        policy_violated                     = 1008,
-        message_too_big                     = 1009,
-        unsupported_extension               = 1010,
-        internal_server_error_ws            = 1011,
-        tls_handshake_failure               = 1015
     };
 
 //----------------------------------------------------------------------------------------------------------------
@@ -550,6 +536,7 @@ namespace http
         void add_header(field f, std::string_view value);
         auto find(field f) const -> std::vector<header>::const_iterator;
         void keep_alive(bool keep_alive_);
+        bool is_websocket_response() const;
     };
 
 //----------------------------------------------------------------------------------------------------------------
@@ -568,19 +555,41 @@ namespace http
     {
         http_read_header_fail = 1,
         http_read_body_fail,
+        ws_handshake_bad_status,
+        ws_handshake_bad_headers,
+        ws_handshake_missing_seq_accept,
+        ws_handshake_bad_sec_accept,
         ws_accept_missing_seq_key,
         ws_invalid_opcode,
-        ws_closed
+        ws_closing_handshake_non_matching_opcode,
+        ws_closing_handshake_non_matching_reason
     };
 
     std::error_code make_error_code(error ec);
 
 //----------------------------------------------------------------------------------------------------------------
 
+    enum ws_code : unsigned short
+    {
+        ws_normal_closure               = 1000,
+        ws_going_away                   = 1001,
+        ws_protocol_error               = 1002,
+        ws_unsupported_data             = 1003,
+        ws_no_code_received             = 1005,
+        ws_connection_closed_abnormally = 1006,
+        ws_invalid_payload_data         = 1007,
+        ws_policy_violated              = 1008,
+        ws_message_too_big              = 1009,
+        ws_unsupported_extension        = 1010,
+        ws_internal_server_error        = 1011,
+        ws_tls_handshake_failure        = 1015
+    };
+
+    std::error_code make_error_code(ws_code ec);
 }
 
 namespace std
 {
-    template <>
-    struct is_error_code_enum<http::error> : std::true_type {};
+    template <> struct is_error_code_enum<http::error>      : std::true_type {};
+    template <> struct is_error_code_enum<http::ws_code>    : std::true_type {};
 }

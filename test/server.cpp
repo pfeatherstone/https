@@ -3,7 +3,6 @@
 #include <vector>
 #include <fstream>
 #include <filesystem>
-#include <getopt.h>
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/detached.hpp>
 #include <boost/asio/dispatch.hpp>
@@ -14,6 +13,7 @@
 #include <boost/asio/ssl/stream.hpp>
 #include <boost/asio/signal_set.hpp>
 #include <http_async.h>
+#include "CLI11.hpp"
 
 //----------------------------------------------------------------------------------------------------------------
 //----------------------------------------------------------------------------------------------------------------
@@ -437,32 +437,12 @@ awaitable listen (
 
 int main(int argc, char* argv[])
 {
-    bool use_tls{false};
-
-    const struct option long_options[] = {
-        {"help",    no_argument, 0, 'h'},
-        {"use_tls", no_argument, 0, 0},
-        {0, 0, 0, 0}
-    };
-
-    const auto usage = [&] {
-        printf("Usage: %s [-h|--help] [--use_tls]\n", argv[0]);
-        return 0;
-    };
-
-    while (true) 
-    {
-        int option_index{0}; // In case of error, this will be 0, name will be "help", and usage will be printed
-        int opt = getopt_long(argc, argv, "h", long_options, &option_index);
-        const char* name = long_options[option_index].name;
-
-        if (opt == -1)
-            break;
-        else if (opt == 'h' || strcmp(name, "help") == 0)
-            return usage();
-        else if (opt == 0 && strcmp(name, "use_tls") == 0)  
-            use_tls = true;
-    }
+    bool     use_tls{false};
+    CLI::App app{"HTTP and Websocket server"};
+    try {
+        app.add_flag("--use_tls", use_tls, "Use TLS");
+        app.parse(argc, argv);
+    } catch (const CLI::ParseError& e) {return app.exit(e);}
 
     try
     {

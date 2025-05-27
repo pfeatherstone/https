@@ -538,19 +538,6 @@ namespace http
         case status_type::loop_detected:                         return "Loop Detected";
         case status_type::not_extended:                          return "Not Extended";
         case status_type::network_authentication_required:       return "Network Authentication Required";
-        //10xx - websocket
-        case status_type::normal_closure:                        return "Normal closure";
-        case status_type::going_away:                            return "Going away";
-        case status_type::protocol_error:                        return "Protocol error";
-        case status_type::unsupported_data:                      return "Unsupported data";
-        case status_type::no_code_received:                      return "No code received";
-        case status_type::connection_closed_abnormally:          return "Connection closed abnormally";
-        case status_type::invalid_payload_data:                  return "Invalid payload data";
-        case status_type::policy_violated:                       return "Policy violated";
-        case status_type::message_too_big:                       return "Message too big";
-        case status_type::unsupported_extension:                 return "Unsupported extension. The client should write the extensions it expected the server to support in the payload";
-        case status_type::internal_server_error_ws:              return "nternal server error";
-        case status_type::tls_handshake_failure:                 return "TLS handshake failure";
         default: break;
         }
         return "<unknown-status>";
@@ -659,6 +646,17 @@ namespace http
         return find_field(headers, f) != end(headers);
     };
 
+    constexpr auto is_websocket_message = [](const auto& headers)
+    {
+        auto conn_field     = find_field(headers, field::connection);
+        auto upgrade_field  = find_field(headers, field::upgrade);
+
+        return conn_field    != end(headers) && 
+               upgrade_field != end(headers) &&
+               (conn_field->contains_value("Upgrade")      || conn_field->contains_value("upgrade")) &&
+               (upgrade_field->contains_value("Websocket") || upgrade_field->contains_value("websocket"));
+    };
+
 //----------------------------------------------------------------------------------------------------------------
 
     void request::clear()
@@ -708,13 +706,7 @@ namespace http
 
     bool request::is_websocket_req() const
     {
-        auto conn_field     = find(field::connection);
-        auto upgrade_field  = find(field::upgrade);
-
-        return conn_field       != end(headers)         && 
-               upgrade_field    != end(headers)         &&
-               conn_field->contains_value("Upgrade")    &&
-               upgrade_field->contains_value("websocket");
+        return is_websocket_message(headers);
     }
 
 //----------------------------------------------------------------------------------------------------------------
@@ -742,6 +734,11 @@ namespace http
     void response::keep_alive(bool keep_alive_)
     {
         add_header(field::connection, keep_alive_ ? "keep-alive" : "close");
+    }
+
+    bool response::is_websocket_response() const
+    {
+        return is_websocket_message(headers);
     }
 
 //----------------------------------------------------------------------------------------------------------------
@@ -946,12 +943,17 @@ namespace http
         {
             switch(static_cast<error>(ev))
             {
-            case http_read_header_fail:     return "Error while parsing HTTP request headers";
-            case http_read_body_fail:       return "Error while reading HTTP body";
-            case ws_accept_missing_seq_key: return "Missing seq-websocket-key in HTTP websocket upgrade request message";
-            case ws_invalid_opcode:         return "Received invalid opcode";
-            case ws_closed:                 return "Websocket received closed opcode";
-            default:                        return "Unrecognised error";
+            case http_read_header_fail:                     return "Error while parsing HTTP request headers";
+            case http_read_body_fail:                       return "Error while reading HTTP body";
+            case ws_handshake_bad_status:                   return "Status code not 101 (Switching Protocol) in websocket upgrade response";
+            case ws_handshake_bad_headers:                  return "Missing connection: upgrade or upgrade: websocket in HTTP headers";
+            case ws_handshake_missing_seq_accept:           return "Missing seq-websocket-accept in HTTP websocket switching response message";
+            case ws_handshake_bad_sec_accept:               return "Bad sec-websocket-accept in HTTP websocket switching response message";
+            case ws_accept_missing_seq_key:                 return "Missing seq-websocket-key in HTTP websocket upgrade request message";
+            case ws_invalid_opcode:                         return "Received invalid opcode";
+            case ws_closing_handshake_non_matching_opcode:  return "Did not receive a CLOSE frame in closing handshake";
+            case ws_closing_handshake_non_matching_reason:  return "The CLOSE frame does not have matching status code (reason) as the endpoint who sent the original";
+            default:                                        return "Unrecognised error";
             }
         }
     };
@@ -961,6 +963,43 @@ namespace http
     std::error_code make_error_code(error ec)
     {
         return {static_cast<int>(ec), http_error_category_singleton};
+    }
+
+//----------------------------------------------------------------------------------------------------------------
+
+    struct ws_code_category : std::error_category
+    {
+        const char* name() const noexcept override 
+        {
+            return "ws_code_category";
+        }
+
+        std::string message(int ev) const override
+        {
+            switch(static_cast<ws_code>(ev))
+            {
+            case ws_normal_closure:                 return "Closed opcode (normal closure)";
+            case ws_going_away:                     return "Closed opcode (going away)";
+            case ws_protocol_error:                 return "Closed opcode (protocol error)";
+            case ws_unsupported_data:               return "Closed opcode (unsupported data)";
+            case ws_no_code_received:               return "WS error (no code received)";
+            case ws_connection_closed_abnormally:   return "WS error (connection closed abnormally)";
+            case ws_invalid_payload_data:           return "Closed opcode (invalid payload data)";
+            case ws_policy_violated:                return "Closed opcode (policy violated)";
+            case ws_message_too_big:                return "Closed opcode (message too big)";
+            case ws_unsupported_extension:          return "Closed opcode (unsupported extensions)";
+            case ws_internal_server_error:          return "Closed opcode (internal server error)";
+            case ws_tls_handshake_failure:          return "WS error (TLS handshake failure)";
+            default:                                return "Unrecognised error";
+            }
+        }
+    };
+
+    const ws_code_category ws_code_category_singleton;
+
+    std::error_code make_error_code(ws_code ec)
+    {
+        return {static_cast<int>(ec), ws_code_category_singleton};
     }
 
 //----------------------------------------------------------------------------------------------------------------

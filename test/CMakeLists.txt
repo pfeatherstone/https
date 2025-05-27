@@ -30,13 +30,14 @@ target_link_libraries(http
 add_executable(server ${CMAKE_CURRENT_SOURCE_DIR}/server.cpp)
 target_compile_features(server PUBLIC cxx_std_20)
 target_link_options(server PUBLIC $<$<CONFIG:Release>:-s>)
-target_link_libraries(server 
-  PUBLIC Threads::Threads
-  PUBLIC http)
+target_link_libraries(server PUBLIC Threads::Threads PUBLIC http)
 
-add_executable(client ${CMAKE_CURRENT_SOURCE_DIR}/client.cpp ${CMAKE_CURRENT_SOURCE_DIR}/yyjson.c)
-target_compile_features(client PUBLIC cxx_std_20)
-target_link_options(client PUBLIC $<$<CONFIG:Release>:-s>)
-target_link_libraries(client 
-  PUBLIC Threads::Threads
-  PUBLIC http)
+add_executable(client_http ${CMAKE_CURRENT_SOURCE_DIR}/client_http.cpp ${CMAKE_CURRENT_SOURCE_DIR}/yyjson.c)
+target_compile_features(client_http PUBLIC cxx_std_20)
+target_link_options(client_http PUBLIC $<$<CONFIG:Release>:-s>)
+target_link_libraries(client_http PUBLIC Threads::Threads PUBLIC http)
+
+add_executable(client_ws ${CMAKE_CURRENT_SOURCE_DIR}/client_ws.cpp ${CMAKE_CURRENT_SOURCE_DIR}/yyjson.c)
+target_compile_features(client_ws PUBLIC cxx_std_20)
+target_link_options(client_ws PUBLIC $<$<CONFIG:Release>:-s>)
+target_link_libraries(client_ws PUBLIC Threads::Threads PUBLIC http)
