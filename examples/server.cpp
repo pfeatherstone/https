@@ -402,7 +402,7 @@ awaitable listen (
         ssl = std::make_shared<boost::asio::ssl::context>(boost::asio::ssl::context::tlsv13_server);
         ssl->set_options(
             boost::asio::ssl::context::default_workarounds | 
-            boost::asio::ssl::context::no_sslv2 | 
+            boost::asio::ssl::context::no_sslv2 |
             boost::asio::ssl::context::single_dh_use |
             boost::asio::ssl::context::verify_peer
         );
