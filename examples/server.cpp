@@ -399,6 +399,7 @@ awaitable listen (
 
     if (options.use_tls)
     {
+        printf("Open https://localhost:%hu\n", options.port);
         ssl = std::make_shared<boost::asio::ssl::context>(boost::asio::ssl::context::tlsv13_server);
         ssl->set_options(
             boost::asio::ssl::context::default_workarounds | 
@@ -410,6 +411,8 @@ awaitable listen (
         ssl->use_certificate_chain_file(options.cert_file);
         ssl->use_private_key_file(options.key_file, boost::asio::ssl::context::pem);
     }
+    else
+        printf("Open http://localhost:%hu\n", options.port);
 
     tcp_acceptor acceptor(ioc, {tcp::v4(), options.port});
 
@@ -418,7 +421,7 @@ awaitable listen (
         tcp_socket sock = co_await acceptor.async_accept(make_strand(ioc));
 
         if (options.use_tls)
-        {
+        {   
             tls_socket tls_sock{std::move(sock), *ssl};
             co_spawn(sock.get_executor(), http_session(std::move(tls_sock), options, ssl), detached);
         }
@@ -440,14 +443,14 @@ int main(int argc, char* argv[])
     bool     use_tls{false};
     CLI::App app{"HTTP and Websocket server"};
     try {
-        app.add_flag("--use_tls", use_tls, "Use TLS");
+        app.add_flag("--tls", use_tls, "Use TLS");
         app.parse(argc, argv);
     } catch (const CLI::ParseError& e) {return app.exit(e);}
 
     try
     {
-        std::ifstream fin0("./test/data/pride_and_prejudice.txt");
-        std::ifstream fin1("./test/data/pride_and_prejudice.txt");
+        std::ifstream fin0("./examples/data/pride_and_prejudice.txt");
+        std::ifstream fin1("./examples/data/pride_and_prejudice.txt");
 
         boost::asio::io_context ioc{1};
         boost::asio::signal_set signals(ioc, SIGINT, SIGTERM);
@@ -455,11 +458,11 @@ int main(int argc, char* argv[])
 
         api_options options = {
             .port           = 8000,
-            .docroot        = "./test/web",
+            .docroot        = "./examples/web",
             .username       = "Tommy",
             .password       = "Aldridge",
-            .cert_file      = "./test/data/cert.pem",
-            .key_file       = "./test/data/key.pem",
+            .cert_file      = "./examples/data/cert.pem",
+            .key_file       = "./examples/data/key.pem",
             .key_password   = "hello there",
             .use_tls        = use_tls,
 
