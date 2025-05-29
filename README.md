@@ -12,32 +12,21 @@ Copy the contents of `src` into your project then link to:
 ## Examples
 
 Try out:
-- `test/server.cpp`
-- `test/client.cpp`
+- [server.cpp](examples/server.cpp)
+- [client_http.cpp](examples/client_http.cpp)
+- [client_ws_awaitable.cpp](examples/client_ws_awaitable.cpp)
+- [client_ws_coro.cpp](examples/client_ws_coro.cpp)
 
 Build using:
 
 ```bash
-$ cmake ./test -B build -DCMAKE_BUILD_TYPE=Release
+$ cmake ./examples -B build -DCMAKE_BUILD_TYPE=Release
 $ cmake --build build --parallel
 ```
-
-Run the following example server and open a browser at http(s)://localhost:8000. Note, the example showcases basic authentication. The user is "Tommy" and the password is "Aldridge".
-
-```bash
-$ ./build/server [--use_tls]
-```
-
-Run the following example client:
-
-```bash
-$ ./build/client
-``` 
 
 ## Roadmap
 - [ ] Chunked encoding
 - [ ] Documentation
-- [ ] WS(s) clients
 - [ ] Unit tests
 
 ## Questions
