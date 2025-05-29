@@ -32,22 +32,28 @@ using namespace std::chrono_literals;
 //----------------------------------------------------------------------------------------------------------------
 //----------------------------------------------------------------------------------------------------------------
 
-awaitable_strand ws_session(std::string host, uint16_t port, std::string msg)
+awaitable_strand read_write_one(auto& sock, std::string_view host, std::vector<char>& buf)
+{
+    constexpr bool is_server{false};
+    constexpr bool is_text{false};
+    co_await http::async_ws_handshake(sock, host, "/ws");
+    co_await http::async_ws_write(sock, buf, is_text, is_server);
+    co_await http::async_ws_read(sock, buf, is_server);
+    co_await http::async_ws_close(sock, http::ws_going_away, is_server);
+}
+
+awaitable_strand ws_session(std::string_view host, uint16_t port, std::string_view msg)
 {
     try
     {
-        // Connect
-        tcp_socket          sock(co_await boost::asio::this_coro::executor);
-        tcp::resolver       resolver(sock.get_executor());
-        std::vector<char>   buf(begin(msg), end(msg));
-        size_t              ret{};
+        // Objects
+        tcp_socket        sock(co_await boost::asio::this_coro::executor);
+        tcp::resolver     resolver(sock.get_executor());
+        std::vector<char> buf(begin(msg), end(msg));
 
         // Async IO
         co_await boost::asio::async_connect(sock, co_await resolver.async_resolve(host, std::to_string(port)), boost::asio::cancel_after(5s));
-        co_await http::async_ws_handshake(sock, host, "/ws");
-        ret = co_await http::async_ws_write(sock, buf, true, false);
-        ret = co_await http::async_ws_read(sock, buf, false);
-        co_await http::async_ws_close(sock, http::ws_going_away, false);
+        co_await read_write_one(sock, host, buf);
 
         // Print echo
         printf("Server echoed back\n\"%.*s\"\n", (int)buf.size(), buf.data());
@@ -59,32 +65,27 @@ awaitable_strand ws_session(std::string host, uint16_t port, std::string msg)
     }
 }
 
-awaitable_strand ws_ssl_session(std::string host, uint16_t port, std::string msg)
+awaitable_strand ws_ssl_session(std::string_view host, uint16_t port, std::string_view msg)
 {
     try
     {
-        // SSL
+        // Objects
         boost::asio::ssl::context ssl(boost::asio::ssl::context::tlsv12_client);
         ssl.set_verify_callback([](bool preverified, boost::asio::ssl::verify_context& ctx) {return true;});
         ssl.set_verify_mode(boost::asio::ssl::verify_peer);
 
-        // Connect
-        tls_socket          sock(tcp_socket(co_await boost::asio::this_coro::executor), ssl);
-        tcp::resolver       resolver(sock.get_executor());
-        std::vector<char>   buf(begin(msg), end(msg));
-        size_t              ret{};
+        tls_socket        sock(tcp_socket(co_await boost::asio::this_coro::executor), ssl);
+        tcp::resolver     resolver(sock.get_executor());
+        std::vector<char> buf(begin(msg), end(msg));
 
         // Async IO
         co_await boost::asio::async_connect(sock.next_layer(), co_await resolver.async_resolve(host, std::to_string(port)), boost::asio::cancel_after(5s));
         co_await sock.async_handshake(boost::asio::ssl::stream_base::client);
-        co_await http::async_ws_handshake(sock, host, "/ws");
-        ret = co_await http::async_ws_write(sock, buf, true, false);
-        ret = co_await http::async_ws_read(sock, buf, false);
-        co_await http::async_ws_close(sock, http::ws_going_away, false);
+        co_await read_write_one(sock, host, buf);
         co_await sock.async_shutdown();
 
         // Print echo
-        printf("Server echoed back\n\"%.*s\"\n", (int)buf.size(), buf.data());
+        printf("TLS server echoed back\n\"%.*s\"\n", (int)buf.size(), buf.data());
     }
     catch(const boost::system::system_error& e)
     {
@@ -98,7 +99,7 @@ int main(int argc, char* argv[])
     std::string host;
     uint16_t    port;
     std::string msg;
-    bool        use_tls;
+    bool        use_tls{};
     CLI::App app{"WebSocket echo client"};
     try{
         app.add_option("--host", host, "Host or IP address of WebSocket server")->required();

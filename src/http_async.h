@@ -85,8 +85,8 @@ namespace http
     >
     auto async_ws_handshake (
         AsyncStream&        sock,
-        std::string         host,
-        std::string         uri,
+        std::string_view    host,
+        std::string_view    uri,
         CompletionToken&&   token = boost::asio::default_completion_token_t<typename AsyncStream::executor_type>()
     );
 
@@ -486,12 +486,12 @@ namespace http
             enum {send_request, read_response, parse_response} state{send_request};
 
             async_ws_handshake_impl (
-                AsyncStream&    sock_, 
-                std::string     uri_, 
-                std::string     host_
+                AsyncStream&        sock_, 
+                std::string_view    uri_, 
+                std::string_view    host_
             ) : sock{sock_}, 
-                uri{std::move(uri_)},
-                host{std::move(host_)}
+                uri{uri_},
+                host{host_}
             {
             }
 
@@ -564,13 +564,13 @@ namespace http
     >
     inline auto async_ws_handshake (
         AsyncStream&        sock,
-        std::string         host,
-        std::string         uri,
+        std::string_view    host,
+        std::string_view    uri,
         CompletionToken&&   token
     )
     {
         return boost::asio::async_compose<CompletionToken, void(boost::system::error_code)> (
-            details::async_ws_handshake_impl{sock, std::move(host), std::move(uri)},
+            details::async_ws_handshake_impl{sock, host, uri},
             token, sock
         ); 
     }
