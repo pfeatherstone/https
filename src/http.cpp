@@ -1,3 +1,4 @@
+#include <cassert>
 #include <cstring>
 #include <algorithm>
 #include <filesystem>
@@ -13,7 +14,7 @@ namespace fs = std::filesystem;
 namespace http
 {
 
-//---------------------------------------------------push_back-------------------------------------------------------------
+//----------------------------------------------------------------------------------------------------------------
 
     const auto BOOST_ASIO_VERSION_STRING = []() -> std::string 
     {
@@ -583,6 +584,160 @@ namespace http
             if (ext1 == ext2)
                 return mime;
         return "application/text";
+    }
+
+//----------------------------------------------------------------------------------------------------------------
+
+
+    static constexpr uint32_t rotl(uint32_t x, size_t s)
+    {
+        return (x << s) | (x >> (32 - s));
+    }
+
+    static constexpr uint32_t f1(uint32_t b, uint32_t c, uint32_t d)
+    {
+        return d ^ (b & (c ^ d)); // original: f = (b & c) | ((~b) & d);
+    }
+
+    static constexpr uint32_t f2(uint32_t b, uint32_t c, uint32_t d)
+    {
+        return b ^ c ^ d;
+    }
+
+    static constexpr uint32_t f3(uint32_t b, uint32_t c, uint32_t d)
+    {
+        return (b & c) | (b & d) | (c & d);
+    }
+
+    const auto process_sha1_block = [](auto& hash, const auto& block, auto& words)
+    {
+        // Initialise buffer
+        for (size_t i = 0 ; i < 16 ; ++i)
+        {
+            std::memcpy(&words[i], &block[i*4], 4);
+            words[i] = htobe32(words[i]);
+        }
+
+        for (size_t i = 16; i < 80; ++i)
+            words[i] = rotl(words[i-3] ^ words[i-8] ^ words[i-14] ^ words[i-16], 1);
+        
+        // Initialize
+        uint32_t a = hash[0];
+        uint32_t b = hash[1];
+        uint32_t c = hash[2];
+        uint32_t d = hash[3];
+        uint32_t e = hash[4];
+
+        // first round
+        for (size_t i = 0; i < 4; ++i)
+        {
+            const size_t offset = 5*i;
+            e += rotl(a,5) + f1(b,c,d) + words[offset  ] + 0x5a827999; b = rotl(b,30);
+            d += rotl(e,5) + f1(a,b,c) + words[offset+1] + 0x5a827999; a = rotl(a,30);
+            c += rotl(d,5) + f1(e,a,b) + words[offset+2] + 0x5a827999; e = rotl(e,30);
+            b += rotl(c,5) + f1(d,e,a) + words[offset+3] + 0x5a827999; d = rotl(d,30);
+            a += rotl(b,5) + f1(c,d,e) + words[offset+4] + 0x5a827999; c = rotl(c,30);
+        }
+
+        // second round
+        for (size_t i = 4; i < 8; ++i)
+        {
+            const size_t offset = 5*i;
+            e += rotl(a,5) + f2(b,c,d) + words[offset  ] + 0x6ed9eba1; b = rotl(b,30);
+            d += rotl(e,5) + f2(a,b,c) + words[offset+1] + 0x6ed9eba1; a = rotl(a,30);
+            c += rotl(d,5) + f2(e,a,b) + words[offset+2] + 0x6ed9eba1; e = rotl(e,30);
+            b += rotl(c,5) + f2(d,e,a) + words[offset+3] + 0x6ed9eba1; d = rotl(d,30);
+            a += rotl(b,5) + f2(c,d,e) + words[offset+4] + 0x6ed9eba1; c = rotl(c,30);
+        }
+
+        // third round
+        for (size_t i = 8; i < 12; ++i)
+        {
+            const size_t offset = 5*i;
+            e += rotl(a,5) + f3(b,c,d) + words[offset  ] + 0x8f1bbcdc; b = rotl(b,30);
+            d += rotl(e,5) + f3(a,b,c) + words[offset+1] + 0x8f1bbcdc; a = rotl(a,30);
+            c += rotl(d,5) + f3(e,a,b) + words[offset+2] + 0x8f1bbcdc; e = rotl(e,30);
+            b += rotl(c,5) + f3(d,e,a) + words[offset+3] + 0x8f1bbcdc; d = rotl(d,30);
+            a += rotl(b,5) + f3(c,d,e) + words[offset+4] + 0x8f1bbcdc; c = rotl(c,30);
+        }
+
+        // fourth round
+        for (size_t i = 12; i < 16; ++i)
+        {
+            const size_t offset = 5*i;
+            e += rotl(a,5) + f2(b,c,d) + words[offset  ] + 0xca62c1d6; b = rotl(b,30);
+            d += rotl(e,5) + f2(a,b,c) + words[offset+1] + 0xca62c1d6; a = rotl(a,30);
+            c += rotl(d,5) + f2(e,a,b) + words[offset+2] + 0xca62c1d6; e = rotl(e,30);
+            b += rotl(c,5) + f2(d,e,a) + words[offset+3] + 0xca62c1d6; d = rotl(d,30);
+            a += rotl(b,5) + f2(c,d,e) + words[offset+4] + 0xca62c1d6; c = rotl(c,30);
+        }
+
+        // update hash
+        hash[0] += a;
+        hash[1] += b;
+        hash[2] += c;
+        hash[3] += d;
+        hash[4] += e;
+    };
+
+    sha1& sha1::push(size_t ndata, const uint8_t* data)
+    {
+        for (size_t i = 0 ; i < ndata ; ++i)
+        {
+            block[off] = data[i];
+            ++off;
+            ++total;
+
+            if (off == std::size(block))
+            {
+                off = 0;
+                process_sha1_block(hash, block, words);
+            }
+        }
+
+        return *this;
+    }
+
+    sha1::digest sha1::finish()
+    {
+        // number of bits
+        const uint64_t ml = htobe64(total*8);
+
+        // Add 0x80
+        block[off++] = 0x80;
+        if (off == std::size(block))
+        {
+            off = 0;
+            process_sha1_block(hash, block, words);
+        }
+
+        // Add remaining 0 bits
+        const size_t end = off <= 56 ? 56 : 56 + 64;
+        for (size_t i = off ; i < end ; ++i)
+        {
+            block[off++] = 0;
+            if (off == std::size(block))
+            {
+                off = 0;
+                process_sha1_block(hash, block, words);
+            }
+        }
+        assert(off == 56);
+        
+        // Add message length
+        uint8_t tmp[8];
+        memcpy(tmp, &ml, 8);
+        for (size_t i = 0 ; i < 8 ; ++i)
+            block[off++] = tmp[i];
+        assert(off == std::size(block));
+        process_sha1_block(hash, block, words);
+
+        // Get final hash
+        sha1::digest h;
+        for (size_t i = 0 ; i < std::size(hash) ; ++i)
+            hash[i] = htobe32(hash[i]);
+        std::memcpy(&h[0], &hash[0], h.size());
+        return h;
     }
 
 //----------------------------------------------------------------------------------------------------------------

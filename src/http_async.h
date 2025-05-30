@@ -5,7 +5,6 @@
 #include <boost/asio/read.hpp>
 #include <boost/asio/read_until.hpp>
 #include <boost/asio/write.hpp>
-#include <openssl/evp.h>
 #include "http.h"
 
 namespace http
@@ -462,15 +461,10 @@ namespace http
         inline std::string compute_sec_ws_accept(std::string_view sec_ws_key)
         {
             constexpr std::string_view magic = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
-            char         hash[EVP_MAX_MD_SIZE];
-            unsigned int hash_len{0};
-            EVP_MD_CTX *mdctx = EVP_MD_CTX_new();
-            EVP_DigestInit_ex(mdctx, EVP_sha1(), NULL);
-            EVP_DigestUpdate(mdctx, sec_ws_key.data(), sec_ws_key.size());
-            EVP_DigestUpdate(mdctx, magic.data(), magic.size());
-            EVP_DigestFinal_ex(mdctx, (unsigned char*)hash, &hash_len);
-            EVP_MD_CTX_free(mdctx);
-            return base64_encode(std::string_view{hash, hash_len});
+            const auto hash = sha1{}.push(sec_ws_key.size(), (const uint8_t*)sec_ws_key.data())
+                                    .push(magic.size(),      (const uint8_t*)magic.data())
+                                    .finish();
+            return base64_encode(std::string_view{(const char*)&hash[0], hash.size()});
         }
 
         template<class AsyncStream>
