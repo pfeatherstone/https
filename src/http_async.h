@@ -464,7 +464,7 @@ namespace http
             const auto hash = sha1{}.push(sec_ws_key.size(), (const uint8_t*)sec_ws_key.data())
                                     .push(magic.size(),      (const uint8_t*)magic.data())
                                     .finish();
-            return base64_encode(std::string_view{(const char*)&hash[0], hash.size()});
+            return base64_encode(hash.size(), &hash[0]);
         }
 
         template<class AsyncStream>
@@ -473,7 +473,7 @@ namespace http
             AsyncStream&                    sock;
             std::string                     uri;
             std::string                     host;
-            char                            nonce[16]   = {0};
+            uint8_t                         nonce[16]   = {0};
             std::unique_ptr<std::string>    buf         = std::make_unique<std::string>();
             std::unique_ptr<request>        req         = std::make_unique<request>();
             std::unique_ptr<response>       reply       = std::make_unique<response>();
@@ -512,7 +512,7 @@ namespace http
                     req->add_header(field::connection,            "upgrade");
                     req->add_header(field::upgrade,               "websocket");
                     req->add_header(field::sec_websocket_version, "13");
-                    req->add_header(field::sec_websocket_key,     base64_encode(std::string_view(nonce, 16)));
+                    req->add_header(field::sec_websocket_key,     base64_encode(16, nonce));
 
                     async_http_write(sock, *req, *buf, std::move(self));
                 }
@@ -542,7 +542,7 @@ namespace http
 
                         if (sec_ws_accept == end(reply->headers))
                             self.complete(make_error_code(ws_handshake_missing_seq_accept));
-                        else if (sec_ws_accept->value != compute_sec_ws_accept(base64_encode(std::string_view(nonce, 16))))
+                        else if (sec_ws_accept->value != compute_sec_ws_accept(base64_encode(16, nonce)))
                             self.complete(make_error_code(ws_handshake_bad_sec_accept));
                         else
                             self.complete({});

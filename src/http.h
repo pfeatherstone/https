@@ -508,8 +508,8 @@ namespace http
 
 //----------------------------------------------------------------------------------------------------------------
 
-    std::string base64_encode(std::string_view data);
-    std::string base64_decode(std::string_view data);
+    std::string          base64_encode(const size_t ndata, const uint8_t* data);
+    std::vector<uint8_t> base64_decode(std::string_view data);
 
 //----------------------------------------------------------------------------------------------------------------
 

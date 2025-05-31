@@ -1,12 +1,9 @@
 #include <cassert>
 #include <cstring>
+#include <cstdarg>
 #include <algorithm>
 #include <filesystem>
-#include <system_error>
 #include <boost/asio/version.hpp>
-#include <openssl/bio.h>
-#include <openssl/evp.h>
-#include <openssl/buffer.h>
 #include "http.h"
 
 namespace fs = std::filesystem;
@@ -742,39 +739,90 @@ namespace http
 
 //----------------------------------------------------------------------------------------------------------------
 
-    std::string base64_encode(std::string_view data)
+    constexpr std::array<uint8_t, 64> base64_encode_table = {
+        'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z',
+        'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z',
+        '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '+', '/'
+    };
+
+    constexpr std::array<uint8_t, 256> base64_decoded_table = [] {
+        std::array<uint8_t, 256> table{};
+        for (size_t i = 0 ; i < base64_encode_table.size() ; ++i)
+            table[base64_encode_table[i]] = i;
+        return table;
+    }();
+
+    std::string base64_encode(const size_t ndata, const uint8_t* data)
     {
-        BIO* b64 = BIO_new(BIO_f_base64());
-        BIO* bio = BIO_new(BIO_s_mem());
-        BIO_set_flags(b64, BIO_FLAGS_BASE64_NO_NL);
-        bio = BIO_push(b64, bio);
+        std::string ret;
+        ret.reserve((ndata+2) / 3 * 4);
+        uint8_t word{0};
+        uint8_t off{6};
+
+        for (size_t i = 0 ; i < ndata ; ++i)
+        {
+            const uint8_t byte = data[i];
+
+            for (int j = 7 ; j >= 0 ; --j)
+            {
+                const uint8_t bit = (byte >> j) & 0x1;
+
+                word |= (bit << --off);
+
+                if (off == 0)
+                {
+                    assert(word < 64);
+                    ret.push_back(base64_encode_table[word]);
+                    off  = 6;
+                    word = 0;
+                }
+            }
+        }
+
+        assert(off == 6 || off == 2 || off == 4);
+
+        if (off < 6)
+        {
+            const size_t npadding = off / 2;
+            ret.push_back(base64_encode_table[word]);
+            for (size_t i = 0 ; i < npadding ; ++i)
+                ret.push_back('=');
+        }
         
-        BIO_write(bio, data.data(), data.size());
-        BIO_flush(bio);
-
-        BUF_MEM* buffer_ptr{nullptr};
-        BIO_get_mem_ptr(bio, &buffer_ptr);
-
-        std::string encoded(buffer_ptr->data, buffer_ptr->length);
-        BIO_free_all(bio);
-        return encoded;
+        return ret;
     }
 
-    std::string base64_decode(std::string_view data)
+    std::vector<uint8_t> base64_decode(std::string_view data)
     {
-        BIO* b64 = BIO_new(BIO_f_base64());
-        BIO* bio = BIO_new_mem_buf(data.data(), data.size());
-        BIO_set_flags(b64, BIO_FLAGS_BASE64_NO_NL);
-        bio = BIO_push(b64, bio);
+        std::vector<uint8_t> ret;
+        ret.reserve(data.size() / 4 * 3);
+        uint8_t word{0};
+        uint8_t off{8};
 
-        std::string output(data.size(), '\0'); // Base64 expands by 4/3, so input is always >= output
-        int decoded_len = BIO_read(bio, output.data(), output.size());
-        if (decoded_len < 0)
-            fprintf(stderr, "Failed to base64 decode data\n");
+        for (size_t i = 0 ; i < data.size() ; ++i)
+        {
+            if (data[i] == '=')
+                continue;
 
-        output.resize(std::max(decoded_len, 0));
-        BIO_free_all(bio);
-        return output;
+            const uint8_t sixtet = base64_decoded_table[data[i]];
+
+            for (int j = 5 ; j >= 0 ; --j)
+            {
+                const uint8_t bit = (sixtet >> j) & 0x1;
+
+                word |= (bit << --off);
+
+                if (off == 0)
+                {
+                    assert(word < 256);
+                    ret.push_back(word);
+                    off  = 8;
+                    word = 0;
+                }
+            }
+        }
+
+        return ret;
     }
 
 //----------------------------------------------------------------------------------------------------------------

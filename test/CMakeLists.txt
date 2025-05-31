@@ -28,6 +28,7 @@ target_link_libraries(http
 # Unit tests
 add_executable(tests
   main.cpp
+  base64.cpp
   sha1.cpp)
 target_link_options(tests PUBLIC $<$<CONFIG:Release>:-s>)
 target_link_libraries(tests PUBLIC http)

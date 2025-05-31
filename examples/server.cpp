@@ -153,9 +153,9 @@ auto handle_authorization (const http::request& req, std::string_view username_e
         return std::make_pair(false, "Missing Authorization field");
     
     std::string_view  login_base64  = lskip(field->value, "Basic ");
-    const std::string login         = http::base64_decode(login_base64);
+    const auto        login         = http::base64_decode(login_base64);
 
-    const auto [user, passwd] = split_once(login, ":");
+    const auto [user, passwd] = split_once(std::string_view((const char*)&login[0], login.size()), ":");
 
     if (user.compare(username_exp) != 0 || passwd.compare(passwd_exp) != 0)
         return std::make_pair(false, "Authentication username-password don't match expected");
