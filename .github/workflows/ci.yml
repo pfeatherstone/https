@@ -86,11 +86,11 @@ jobs:
 
       - name: Render JUnit results in GitHub UI
         if: always()
-        uses: dorny/test-reporter@v1
+        uses: dorny/test-reporter@v1.6.0
         with:
           name: ${{ matrix.name }} Tests
           path: ${{ env.TEST_RESULTS_DIR }}/results.xml
-          reporter: junit
+          reporter: java-junit
 
       - name: Upload Test Results Artifact
         if: always()
