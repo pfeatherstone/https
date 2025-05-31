@@ -1,0 +1,108 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - '**'
+  pull_request:
+    branches:
+      - '**'
+
+env:
+  CMAKE_VERSION: '3.31.7'
+  CMAKE_INSTALL_DIR: '${{ github.workspace }}/.cmake'
+  CMAKE_BIN: '${{ github.workspace }}/.cmake/bin/cmake'
+  TEST_RESULTS_DIR: '${{ github.workspace }}/test-results'
+
+jobs:
+  build-and-test:
+    strategy:
+      matrix:
+        include:
+          - name: Ubuntu-20.04-GCC
+            os: ubuntu-20.04
+            cc: gcc
+            cxx: g++
+          - name: Ubuntu-20.04-Clang
+            os: ubuntu-20.04
+            cc: clang
+            cxx: clang++
+          - name: Ubuntu-22.04-GCC
+            os: ubuntu-22.04
+            cc: gcc
+            cxx: g++
+          - name: Ubuntu-22.04-Clang
+            os: ubuntu-22.04
+            cc: clang
+            cxx: clang++
+          - name: Ubuntu-24.04-GCC
+            os: ubuntu-24.04
+            cc: gcc
+            cxx: g++
+          - name: Ubuntu-24.04-Clang
+            os: ubuntu-24.04
+            cc: clang
+            cxx: clang++
+          - name: Ubuntu-22.04-GCC-FFTW
+            os: ubuntu-22.04
+            cc: gcc
+            cxx: g++
+            extra_packages: libfftw3-dev
+
+    runs-on: ${{ matrix.os }}
+    name: ${{ matrix.name }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y ninja-build ${{ matrix.cc }} ${{ matrix.cxx }} ${{ matrix.extra_packages }}
+
+      - name: Cache CMake
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.CMAKE_INSTALL_DIR }}
+          key: cmake-${{ env.CMAKE_VERSION }}-${{ matrix.os }}-${{ matrix.cc }}-try2
+
+      - name: Download and Install CMake if not cached
+        run: |
+          if [ ! -f "${{ env.CMAKE_BIN }}" ]; then
+            echo "CMake not found in cache. Downloading..."
+            mkdir -p "${{ env.CMAKE_INSTALL_DIR }}"
+            wget -q https://github.com/Kitware/CMake/releases/download/v${{ env.CMAKE_VERSION }}/cmake-${{ env.CMAKE_VERSION }}-linux-x86_64.tar.gz
+            tar -xzf cmake-${{ env.CMAKE_VERSION }}-linux-x86_64.tar.gz --strip-components=1 -C "${{ env.CMAKE_INSTALL_DIR }}"
+          else
+            echo "Using cached CMake"
+          fi
+          "${{ env.CMAKE_BIN }}" --version
+
+      - name: Run CMake configuration and build
+        run: |
+          "${{ env.CMAKE_BIN }}" . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DCMAKE_C_COMPILER=${{ matrix.cc }} \
+            -DCMAKE_CXX_COMPILER=${{ matrix.cxx }}
+          "${{ env.CMAKE_BIN }}" --build build --parallel
+
+      - name: Run Unit Tests
+        run: |
+          mkdir -p "${{ env.TEST_RESULTS_DIR }}"
+          ./build/tests --reporters=junit --out="${{ env.TEST_RESULTS_DIR }}/results.xml"
+
+      - name: Render JUnit results in GitHub UI
+        if: always()
+        uses: dorny/test-reporter@v1
+        with:
+          name: ${{ matrix.name }} Tests
+          path: ${{ env.TEST_RESULTS_DIR }}/results.xml
+          reporter: junit
+
+      - name: Upload Test Results Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}-test-results
+          path: ${{ env.TEST_RESULTS_DIR }}/results.xml
