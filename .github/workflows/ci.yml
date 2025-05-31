@@ -8,6 +8,10 @@ on:
     branches:
       - '**'
 
+permissions:
+  checks: write
+  contents: read
+  
 env:
   CMAKE_VERSION: '3.31.7'
   CMAKE_INSTALL_DIR: '${{ github.workspace }}/.cmake'
