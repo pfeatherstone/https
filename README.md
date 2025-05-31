@@ -23,14 +23,7 @@ $ cmake --build build --parallel
 
 ## Unit tests
 
-Build using:
-
-```bash
-$ cmake ./test -B build -DCMAKE_BUILD_TYPE=Release
-$ cmake --build build --parallel
-```
-
-Run using:
+Build as above. Run using:
 
 ```bash
 $ ./build/tests
