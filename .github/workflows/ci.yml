@@ -59,7 +59,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt update
-          sudo apt install -y ninja-build ${{ matrix.cc }} ${{ matrix.cxx }} ${{ matrix.extra_packages }}
+          sudo apt install -y ninja-build gcc g++ clang ${{ matrix.extra_packages }}
 
       - name: Cache CMake
         uses: actions/cache@v4
