@@ -355,16 +355,15 @@ awaitable_strand http_session (
             }
 
             // Reset response, set http version and keep alive status of response
+            const bool keep_alive = req.keep_alive();
             resp.clear();
-            resp.http_version_major = req.http_version_major;
             resp.http_version_minor = req.http_version_minor;
-            resp.keep_alive(req.keep_alive());
+            resp.keep_alive(keep_alive);
             
             // Handle request and set response
             handle_request(options.docroot, options.username, options.password, options.http_handlers, req, resp);
 
             // Write response
-            const bool keep_alive = req.keep_alive();
             res = co_await async_http_write(sock, resp, buf);
 
             // Shutdown if necessary

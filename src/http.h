@@ -524,9 +524,8 @@ namespace http
 
     struct request
     {
-        verb_type           verb;
-        int                 http_version_major{};
-        int                 http_version_minor{};
+        verb_type           verb{UNKNOWN_VERB};
+        int                 http_version_minor{-1};
         std::string         uri;
         std::vector<header> headers;
         std::string         content;
@@ -543,8 +542,7 @@ namespace http
     struct response
     {
         status_type         status{unknown};
-        int                 http_version_major{};
-        int                 http_version_minor{};
+        int                 http_version_minor{-1};
         std::vector<header> headers;
         std::string         content_str;
         file_ptr            content_file;
@@ -557,21 +555,48 @@ namespace http
     };
 
 //----------------------------------------------------------------------------------------------------------------
+    
+    template<class Message>
+    class parser
+    {
+    private:
+        static constexpr std::size_t max_header_size = 8192;
+        enum {start_line, header_line, body, done} state{start_line};
+        size_t body_read{0};
+
+    public:
+        void reset();
+        bool parse(Message& req, std::string& buf, std::error_code& ec);
+    };
+
+//----------------------------------------------------------------------------------------------------------------
+
+    void serialize_header(request& req, std::string& buf, std::error_code& ec);
+    void serialize_header(response& resp, std::string& buf, std::error_code& ec);
+
+//----------------------------------------------------------------------------------------------------------------
 
     namespace details
     {
-        int     parse_header(request& req, const size_t ndata, char* data);
-        int     parse_header(response& resp, const size_t ndata, char* data);
-        void    serialize_header(request& req, std::string& buf);
-        void    serialize_header(response& resp, std::string& buf);
+        inline std::string& get_content(request& req)      {return req.content;}
+        inline std::string& get_content(response& resp)    {return resp.content_str;}
+        inline FILE*        get_file(request& req)         {return nullptr;}
+        inline FILE*        get_file(response& resp)       {return resp.content_file.get();} 
     }
 
 //----------------------------------------------------------------------------------------------------------------
 
     enum error
     {
-        http_read_header_fail = 1,
-        http_read_body_fail,
+        http_read_header_line_too_big = 1,
+        http_read_bad_method,
+        http_read_unsupported_http_version,
+        http_read_header_kv_delimiter_not_found,
+        http_read_header_unsupported_field,
+        http_write_unsupported_http_version,
+        http_write_request_bad_verb,
+        http_write_request_missing_uri,
+        http_write_request_missing_host,
         ws_handshake_bad_status,
         ws_handshake_bad_headers,
         ws_handshake_missing_seq_accept,

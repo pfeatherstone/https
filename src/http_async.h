@@ -149,20 +149,16 @@ namespace http
 
     namespace details
     {
-        std::string& get_content(request& req)      {return req.content;}
-        std::string& get_content(response& resp)    {return resp.content_str;}
-        FILE*        get_file(request& req)         {return nullptr;}
-        FILE*        get_file(response& resp)       {return resp.content_file.get();}
-
         template<class AsyncReadStream, class Message>
         struct async_http_read_impl
         {
             AsyncReadStream&            sock;
             Message&                    msg;
             std::string&                buf;
+            parser<Message>             parser_;
             size_t                      total_read{0};
-            size_t                      body_read{0};
-            enum {header, parse, body}  state{header};
+            size_t                      buf_off{0};
+            enum {read, parse}          state{read};
 
             async_http_read_impl(AsyncReadStream& sock_, Message& msg_, std::string& buf_)
             : sock{sock_}, msg{msg_}, buf{buf_}
@@ -178,72 +174,38 @@ namespace http
                 if (error)
                     self.complete(error, total_read);
 
-                // Header
-                else if (state == header) 
+                // Read
+                else if (state == read)
                 {
                     state = parse;
-                    boost::asio::async_read_until(sock, boost::asio::dynamic_buffer(buf), "\r\n\r\n", std::move(self));
+                    buf.resize(128);
+                    sock.async_read_some(boost::asio::buffer(buf), std::move(self));
                 }
 
                 // Parse
                 else if (state == parse)
                 {
-                    const int header_size = details::parse_header(msg, nread, buf.data());
-                    assert(header_size == nread);
+                    total_read  += nread;
+                    buf_off     += nread;
+                    buf.resize(buf_off);
 
-                    // Header fail
-                    if (header_size < 0)
-                        self.complete(make_error_code(http_read_header_fail), total_read);
+                    auto finished = parser_.parse(msg, buf, error);
 
-                    // Header ok
-                    else
+                    // Error
+                    if (error)
+                        self.complete(error, total_read);
+
+                    // Incomplete
+                    else if (!finished)
                     {
-                        state = body;
-                        total_read += buf.size();
-
-                        const auto it = msg.find(field::content_length);
-
-                        // Read body
-                        if (it != end(msg.headers))
-                        {
-                            const size_t content_size   = std::stoul(it->value);
-                            body_read                   = buf.size() - header_size;
-                            const size_t remaining      = content_size - body_read;
-                            assert(body_read <= content_size || "Reading into the next HTTP message or other bug. Either way, bug!");
-                            
-                            get_content(msg).resize(content_size);
-                            std::copy(begin(buf) + header_size, end(buf), begin(get_content(msg)));
-                            
-                            // Body already read
-                            if (remaining == 0)
-                                self.complete(boost::system::error_code{}, total_read);
-
-                            // Read body
-                            if (remaining > 0)
-                                boost::asio::async_read(sock, boost::asio::buffer(&get_content(msg)[body_read], remaining), std::move(self));
-                        }
-
-                        // Handle empty body
-                        else
-                        {
-                            self.complete(boost::system::error_code{}, total_read);
-                        }
+                        buf_off = buf.size();
+                        buf.resize(buf_off + 128);
+                        sock.async_read_some(boost::asio::buffer(&buf[buf_off], 128), std::move(self));
                     }
-                }
-
-                // Handle body
-                else
-                {
-                    total_read += nread;
-                    body_read  += nread;
-
-                    // Failed to read complete body
-                    if (body_read != get_content(msg).size())
-                        self.complete(make_error_code(http_read_body_fail), total_read);
-                    
-                    // Read complete body
+                            
+                    // Done
                     else
-                        self.complete(boost::system::error_code{}, total_read);
+                        self.complete({}, total_read);
                 }
             }
         };
@@ -370,7 +332,6 @@ namespace http
             : sock{sock_}, msg{msg_}, buf{buf_}
             {
                 buf.clear();
-                details::serialize_header(msg, buf);
             }
 
             template<class Self>
@@ -384,7 +345,11 @@ namespace http
                 else if (state == headers)
                 {
                     state = body;
-                    boost::asio::async_write(sock, boost::asio::buffer(buf), std::move(self)); 
+                    serialize_header(msg, buf, error);
+                    if (error)
+                        self.complete(error, total_written);
+                    else
+                        boost::asio::async_write(sock, boost::asio::buffer(buf), std::move(self)); 
                 }
 
                 // Body
@@ -506,7 +471,7 @@ namespace http
 
                     req->verb = GET;
                     req->uri  = uri;
-                    req->http_version_major = req->http_version_minor = 1;
+                    req->http_version_minor = 1;
                     req->add_header(field::host,                  host);
                     req->add_header(field::user_agent,            "Boost::asio " + std::to_string(BOOST_ASIO_VERSION));
                     req->add_header(field::connection,            "upgrade");
@@ -617,7 +582,6 @@ namespace http
                     {
                         // Send response
                         reply->status               = status_type::switching_protocols;
-                        reply->http_version_major   = req.http_version_major;
                         reply->http_version_minor   = req.http_version_minor;
                         reply->add_header(field::server,        "Boost::asio " + std::to_string(BOOST_ASIO_VERSION));
                         reply->add_header(field::upgrade,       "websocket");

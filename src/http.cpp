@@ -13,17 +13,6 @@ namespace http
 
 //----------------------------------------------------------------------------------------------------------------
 
-    const auto BOOST_ASIO_VERSION_STRING = []() -> std::string 
-    {
-        char buf[16]= {0};
-        snprintf(buf, sizeof(buf), "%d.%d.%d", BOOST_ASIO_VERSION / 100000, 
-                                               BOOST_ASIO_VERSION / 100 % 1000, 
-                                               BOOST_ASIO_VERSION % 100);
-        return buf;
-    }();
-
-//----------------------------------------------------------------------------------------------------------------
-
     std::string format(const char* fmt, ...) __attribute__ ((format (printf, 1, 2)));
 
     std::string format(const char* fmt, ...)
@@ -65,7 +54,6 @@ namespace http
         for (unsigned int i = 0 ; i < std::size(VERBS) ; ++i)
             if (VERBS[i] == str)
                 return (verb_type)i;
-        fprintf(stderr, "Could not find verb enum for %.*s\n", (int)str.size(), str.data());
         return UNKNOWN_VERB;
     }
 
@@ -456,7 +444,6 @@ namespace http
         for (unsigned int i = 0 ; i < std::size(FIELDS) ; ++i)
             if (FIELDS[i] == to_lower(f))
                 return (field)i;
-        fprintf(stderr, "Could not find field enum for %.*s\n", (int)f.size(), f.data());
         return unknown_field;
     }
 
@@ -814,7 +801,6 @@ namespace http
 
                 if (off == 0)
                 {
-                    assert(word < 256);
                     ret.push_back(word);
                     off  = 8;
                     word = 0;
@@ -867,9 +853,8 @@ namespace http
         uri.clear();
         headers.clear();
         content.clear();
-        http_version_major = 0;
-        http_version_minor = 0;
-        verb = {};
+        http_version_minor = -1;
+        verb = UNKNOWN_VERB;
     }
 
     void request::add_header(field f, std::string_view value)
@@ -895,16 +880,8 @@ namespace http
                 return false;
         }
 
-        // HTTP 1.0 - default is to close
-        if (http_version_major == 1 && http_version_minor == 0)
-            return false;
-
-        // HTTP 1.1 - default is to keep open
-        else if (http_version_major == 1 && http_version_minor == 1)
-            return true;
-        
-        // Default - just close
-        return false;
+        // HTTP 1.1 - default is to keep open otherwise default is to close
+        return http_version_minor == 1;
     }
 
     bool request::is_websocket_req() const
@@ -917,8 +894,7 @@ namespace http
     void response::clear()
     {
         status              = unknown;
-        http_version_major  = 0;
-        http_version_minor  = 0;
+        http_version_minor  = -1;
         headers.clear();
         content_str.clear();
         content_file.reset();
@@ -946,191 +922,262 @@ namespace http
 
 //----------------------------------------------------------------------------------------------------------------
 
-    namespace details
+    template<class Message>
+    void parser<Message>::reset()
     {
+        state = start_line;
+        body_read = 0;
+    }
 
-//----------------------------------------------------------------------------------------------------------------
+    void parse_start_line(request& req, const char* line, std::error_code& ec)
+    {
+        char method[8] = {0};
+        req.uri.resize(strlen(line));
+        int http_version_major = -1;
+        req.http_version_minor = -1;
+        sscanf(line, "%s %s HTTP/%i.%i", method, &req.uri[0], &http_version_major, &req.http_version_minor);
+        req.verb = verb_enum(method);
+        req.uri.resize(strlen(req.uri.c_str()));
+        if (req.verb == UNKNOWN_VERB)
+            ec = make_error_code(http_read_bad_method);
+        else if (http_version_major != 1 || !(req.http_version_minor == 0 || req.http_version_minor == 1))
+            ec = make_error_code(http_read_unsupported_http_version);
+    }
 
-        int parse_start_line(request& req, const char* line)
+    void parse_start_line(response& resp, const char* line, std::error_code& ec)
+    {
+        resp.status = status_type::unknown;
+        int http_version_major = -1;
+        resp.http_version_minor = -1;
+        sscanf(line, "HTTP/%i.%i %u", &http_version_major, &resp.http_version_minor, (unsigned int*)&resp.status);
+        if (http_version_major != 1 || !(resp.http_version_minor == 0 || resp.http_version_minor == 1))
+            ec = make_error_code(http_read_unsupported_http_version);
+    }
+
+    template<class Message>
+    bool parser<Message>::parse(Message& msg, std::string& buf, std::error_code& ec)
+    {
+        using namespace details;
+
+        while (!buf.empty() && !ec && state != done)
         {
-            char method[8] = {0};
-            req.uri.resize(strlen(line));
-            const int ret = sscanf(line, "%s %s HTTP/%i.%i", method, &req.uri[0], &req.http_version_major, &req.http_version_minor);
-            if (ret != 4)
-                return -1;
-            req.verb = verb_enum(method);
-            req.uri.resize(strlen(req.uri.c_str()));
-            return 0;
-        }
+            // Check buffer size
+            if (buf.size() > max_header_size)
+                ec = make_error_code(http_read_header_line_too_big);
 
-        int parse_start_line(response& resp, const char* line)
-        {
-            const int ret = sscanf(line, "HTTP/%i.%i %u", &resp.http_version_major, &resp.http_version_minor, (unsigned int*)&resp.status);
-            return ret != 3 ? -1 : 0;
-        }
-
-        const auto parse_header_impl = [](auto& msg, const size_t ndata, char* data) -> int
-        {
-            bool    first_line{true};
-            bool    end_of_header{false};
-            char*   pos{data};
-
-            while (pos < data+ndata && !end_of_header)
+            // Start line or header line
+            else if (state == start_line || state == header_line)
             {
                 // Find EOL
-                char* end = strstr(pos, "\r\n");
+                char* end = strstr(&buf[0], "\r\n");
+
+                // Not found
                 if (end == nullptr)
-                    return -1; // error
-                
-                // null-terminate line
-                *end = '\0';   
-                
-                // Handle start line
-                if (first_line)
-                {
-                    first_line = false;
-                    if (parse_start_line(msg, pos) < 0)
-                        return -1;
-                }
-
-                // Handle header line
-                else if (strlen(pos) > 0)
-                {
-                    char* kend = strstr(pos, ": ");
-                    if (kend == nullptr)
-                        return -1;
+                    break;
                     
-                    msg.add_header(field_enum(std::string_view(pos, kend-pos)), std::string_view(kend+2, end-kend-2));
-                }
-
-                // Handle end of header
+                // Found
                 else
-                    end_of_header = true;
+                {
+                    *end = '\0';
 
-                // advance pos
-                pos = end + 2; 
+                    // Start line
+                    if (state == start_line)
+                    {
+                        state = header_line;
+                        parse_start_line(msg, &buf[0], ec);
+                    }
+
+                    // Header line
+                    else if (std::distance(&buf[0], end) > 0)
+                    {
+                        char* kend = strstr(&buf[0], ": ");
+
+                        if (kend == nullptr)
+                            ec = make_error_code(http_read_header_kv_delimiter_not_found);
+                        
+                        else
+                        {
+                            auto field = field_enum(std::string_view(&buf[0], std::distance(&buf[0], kend)));
+                            auto value = std::string_view(kend+2, std::distance(kend+2, end));
+
+                            if (field == unknown_field)
+                                ec = make_error_code(http_read_header_unsupported_field);
+                            else
+                                msg.add_header(field, value);
+                        }
+                    }
+
+                    // End of header - found \r\n\r\n
+                    else
+                    {
+                        const auto it               = msg.find(field::content_length);
+                        const size_t content_size   = it != msg.headers.end() ? std::stoul(it->value) : 0;
+
+                        // Read body
+                        if (content_size > 0)
+                        {
+                            state = body;
+                            get_content(msg).resize(content_size);
+                        }
+
+                        // Empty body
+                        else
+                            state = done;
+                    }
+
+                    buf.erase(begin(buf), begin(buf) + std::distance(&buf[0], end + 2));
+                }
             }
 
-            return std::distance(data, pos);
-        };
-
-        int parse_header(request& req, const size_t ndata, char* data)
-        {
-            return parse_header_impl(req, ndata, data);
-        }
-
-        int parse_header(response& resp, const size_t ndata, char* data)
-        {
-            return parse_header_impl(resp, ndata, data);
-        }
-
-//----------------------------------------------------------------------------------------------------------------
-
-        const auto handle_empty = [](auto& msg)
-        {
-            remove_field(msg.headers, field::content_type);
-            remove_field(msg.headers, field::content_length);
-        };
-
-        const auto handle_content = [](auto& msg, const std::string& content)
-        {
-            // Add default Content type if empty
-            if (!contains(msg.headers, field::content_type))
-                msg.add_header(field::content_type, "text/plain");
-            
-            // Set Content length
-            auto it = find_field(msg.headers, field::content_length);
-            if (it == end(msg.headers))
-                msg.add_header(field::content_length, std::to_string(content.size()));
-            else
-                it->value = std::to_string(content.size());     
-        };
-
-        const auto handle_file = [](auto& msg)
-        {
-            // Content type - assume it's already set
-            if (!contains(msg.headers, field::content_type))
-                fprintf(stderr, "Content-Type is not set for file\n");
-        
-            // Content length
-            fseek(msg.content_file.get(), 0, SEEK_END);
-            const size_t file_size = ftell(msg.content_file.get());
-            fseek(msg.content_file.get(), 0, SEEK_SET);
-
-            auto it = find_field(msg.headers, field::content_length);
-            if (it == end(msg.headers))
-                msg.add_header(field::content_length, std::to_string(file_size));
-            else
-                it->value = std::to_string(file_size);
-        };
-
-        const auto serialize_header_final = [](auto& msg, std::string_view start_line, std::string& buf)
-        {
-            buf.append(start_line);
-
-            for (const auto& [k, v] : msg.headers)
+            // Body
+            else if (state == body)
             {
-                buf.append(field_label(k));
-                buf.append(": ");
-                buf.append(v);
-                buf.append("\r\n");
+                const size_t remaining = get_content(msg).size() - body_read;
+                const size_t available = std::min(remaining, buf.size());
+                std::copy(begin(buf), begin(buf) + available, begin(get_content(msg)) + body_read);
+                buf.erase(begin(buf), begin(buf) + available);
+                body_read += available;
+                    
+                if (get_content(msg).size() == body_read)
+                    state = done;
             }
-            buf.append("\r\n");
-        };
-
-        void serialize_header(request& req, std::string& buf)
-        {
-            // Set request line
-            const std::string status_str = format("%s %s HTTP/%i.%i\r\n", verb_label(req.verb).data(), req.uri.c_str(), req.http_version_major, req.http_version_minor);
-
-            // Add default connection string if empty
-            if (!contains(req.headers, field::connection))
-                req.add_header(field::connection, "close");
-
-            // Handle empty body
-            if (req.content.empty())
-                handle_empty(req);
-
-            // Handle string body
-            else if (!req.content.empty())
-                handle_content(req, req.content);
-
-            // Serialize
-            serialize_header_final(req, status_str, buf);
         }
 
-        void serialize_header(response& resp, std::string& buf)
-        {
-            // Set status string
-            char status_str[64] = {0};
-            snprintf(status_str, sizeof(status_str), "HTTP/%i.%i %i %s\r\n", resp.http_version_major, resp.http_version_minor, resp.status, status_label(resp.status).data());
+        return state == done;
+    }
 
-            // Add default server string if empty
-            if (!contains(resp.headers, field::server))
-                resp.add_header(field::server, BOOST_ASIO_VERSION_STRING);
-
-            // Add default connection string if empty
-            if (!contains(resp.headers, field::connection))
-                resp.add_header(field::connection, "close");
-
-            // Handle empty body
-            if (resp.content_str.empty() && resp.content_file == nullptr)
-                handle_empty(resp);
-
-            // Handle string body
-            else if (!resp.content_str.empty())
-                handle_content(resp, resp.content_str);
-
-            // Handle file body
-            else if (resp.content_file)
-                handle_file(resp);
-
-            // Serialize
-            serialize_header_final(resp, status_str, buf);
-        }
+    template class parser<request>;
+    template class parser<response>;
 
 //----------------------------------------------------------------------------------------------------------------
 
+    const auto handle_empty = [](auto& msg)
+    {
+        remove_field(msg.headers, field::content_type);
+        remove_field(msg.headers, field::content_length);
+    };
+
+    const auto handle_content = [](auto& msg, const std::string& content)
+    {
+        // Add default Content type if empty
+        if (!contains(msg.headers, field::content_type))
+            msg.add_header(field::content_type, "text/plain");
+        
+        // Set Content length
+        auto it = find_field(msg.headers, field::content_length);
+        if (it == end(msg.headers))
+            msg.add_header(field::content_length, std::to_string(content.size()));
+        else
+            it->value = std::to_string(content.size());     
+    };
+
+    const auto handle_file = [](auto& msg)
+    {
+        // Content type - assume it's already set
+        if (!contains(msg.headers, field::content_type))
+            fprintf(stderr, "Content-Type is not set for file\n");
+
+        // Content length
+        fseek(msg.content_file.get(), 0, SEEK_END);
+        const size_t file_size = ftell(msg.content_file.get());
+        fseek(msg.content_file.get(), 0, SEEK_SET);
+
+        auto it = find_field(msg.headers, field::content_length);
+        if (it == end(msg.headers))
+            msg.add_header(field::content_length, std::to_string(file_size));
+        else
+            it->value = std::to_string(file_size);
+    };
+
+    const auto serialize_header_final = [](auto& msg, std::string_view start_line, std::string& buf)
+    {
+        buf.append(start_line);
+
+        for (const auto& [k, v] : msg.headers)
+        {
+            buf.append(field_label(k));
+            buf.append(": ");
+            buf.append(v);
+            buf.append("\r\n");
+        }
+        buf.append("\r\n");
+    };
+
+    void serialize_header(request& req, std::string& buf, std::error_code& ec)
+    {
+        // Check request
+        if (req.verb == UNKNOWN_VERB)
+        {
+            ec = make_error_code(http::http_write_request_bad_verb);
+            return;
+        }
+
+        if (req.uri.empty())
+        {
+            ec = make_error_code(http::http_write_request_missing_uri);
+            return;
+        }
+
+        if (!(req.http_version_minor == 0 || req.http_version_minor == 1))
+        {
+            ec = make_error_code(http::http_write_unsupported_http_version);
+            return;
+        }
+
+        // HTTP requests require "host" field
+        if (!contains(req.headers, field::host))
+        {
+            ec = make_error_code(http::http_write_request_missing_host);
+            return;
+        }
+
+        // Set request line
+        const std::string status_str = format("%s %s HTTP/1.%i\r\n", verb_label(req.verb).data(), req.uri.c_str(), req.http_version_minor);
+
+        // Add default connection string if empty
+        if (!contains(req.headers, field::connection))
+            req.add_header(field::connection, "close");
+
+        // Handle empty body
+        if (req.content.empty())
+            handle_empty(req);
+
+        // Handle string body
+        else if (!req.content.empty())
+            handle_content(req, req.content);
+
+        // Serialize
+        serialize_header_final(req, status_str, buf);
+    }
+
+    void serialize_header(response& resp, std::string& buf, std::error_code& ec)
+    {
+        // Set status string
+        char status_str[64] = {0};
+        snprintf(status_str, sizeof(status_str), "HTTP/1.%i %i %s\r\n", resp.http_version_minor, resp.status, status_label(resp.status).data());
+
+        // Add default server string if empty
+        if (!contains(resp.headers, field::server))
+            resp.add_header(field::server, "Boost::asio " + std::to_string(BOOST_ASIO_VERSION));
+
+        // Add default connection string if empty
+        if (!contains(resp.headers, field::connection))
+            resp.add_header(field::connection, "close");
+
+        // Handle empty body
+        if (resp.content_str.empty() && resp.content_file == nullptr)
+            handle_empty(resp);
+
+        // Handle string body
+        else if (!resp.content_str.empty())
+            handle_content(resp, resp.content_str);
+
+        // Handle file body
+        else if (resp.content_file)
+            handle_file(resp);
+
+        // Serialize
+        serialize_header_final(resp, status_str, buf);
     }
 
 //----------------------------------------------------------------------------------------------------------------
@@ -1146,8 +1193,15 @@ namespace http
         {
             switch(static_cast<error>(ev))
             {
-            case http_read_header_fail:                     return "Error while parsing HTTP request headers";
-            case http_read_body_fail:                       return "Error while reading HTTP body";
+            case http_read_header_line_too_big:             return "HTTP header line is too big";
+            case http_read_bad_method:                      return "HTTP request method bad";
+            case http_read_unsupported_http_version:        return "HTTP version either bad or unsupported";
+            case http_read_header_kv_delimiter_not_found:   return "Missing delimiter in HTTP header line";
+            case http_read_header_unsupported_field:        return "HTTP header field unsupported";
+            case http_write_unsupported_http_version:       return "HTTP message contains bad or unsupported http minor version";
+            case http_write_request_bad_verb:               return "HTTP request contains bad verb";
+            case http_write_request_missing_uri:            return "HTTP request missing URI";
+            case http_write_request_missing_host:           return "HTTP request missing 'host' filed";
             case ws_handshake_bad_status:                   return "Status code not 101 (Switching Protocol) in websocket upgrade response";
             case ws_handshake_bad_headers:                  return "Missing connection: upgrade or upgrade: websocket in HTTP headers";
             case ws_handshake_missing_seq_accept:           return "Missing seq-websocket-accept in HTTP websocket switching response message";

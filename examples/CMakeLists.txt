@@ -46,7 +46,8 @@ add_executable_coro(client_ws_coro    ${CMAKE_CURRENT_SOURCE_DIR}/client_ws_coro
 add_executable(tests
   unit_tests/main.cpp
   unit_tests/base64.cpp
-  unit_tests/sha1.cpp)
+  unit_tests/sha1.cpp
+  unit_tests/message.cpp)
 target_link_options(tests PRIVATE $<$<CONFIG:Release>:-s>)
 target_include_directories(tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/extra)
 target_link_libraries(tests PRIVATE http)
