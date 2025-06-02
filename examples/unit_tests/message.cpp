@@ -87,12 +87,12 @@ TEST_SUITE("[MESSAGE]")
 
             size_t blocksize{};
 
-            SUBCASE("") { blocksize = 1;}
-            SUBCASE("") { blocksize = 10;}
-            SUBCASE("") { blocksize = 99;}
-            SUBCASE("") { blocksize = 128;}
-            SUBCASE("") { blocksize = 1024;}
-            
+            SUBCASE("blocksize == 1")    { blocksize = 1;}
+            SUBCASE("blocksize == 10")   { blocksize = 10;}
+            SUBCASE("blocksize == 99")   { blocksize = 99;}
+            SUBCASE("blocksize == 128")  { blocksize = 128;}
+            SUBCASE("blocksize == 1024") { blocksize = 1024;}
+
             size_t nblocks = (buf.size() + blocksize - 1) / blocksize;
             std::string  block;
 

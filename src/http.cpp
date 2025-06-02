@@ -923,35 +923,19 @@ namespace http
 //----------------------------------------------------------------------------------------------------------------
 
     template<class Message>
+    parser<Message>::parser()
+    {
+        reset();   
+    }
+
+    template<class Message>
     void parser<Message>::reset()
     {
-        state = start_line;
+        if constexpr (std::is_same_v<Message, request>)
+            state = method;
+        else
+            state = http_version;
         body_read = 0;
-    }
-
-    void parse_start_line(request& req, const char* line, std::error_code& ec)
-    {
-        char method[8] = {0};
-        req.uri.resize(strlen(line));
-        int http_version_major = -1;
-        req.http_version_minor = -1;
-        sscanf(line, "%s %s HTTP/%i.%i", method, &req.uri[0], &http_version_major, &req.http_version_minor);
-        req.verb = verb_enum(method);
-        req.uri.resize(strlen(req.uri.c_str()));
-        if (req.verb == UNKNOWN_VERB)
-            ec = make_error_code(http_read_bad_method);
-        else if (http_version_major != 1 || !(req.http_version_minor == 0 || req.http_version_minor == 1))
-            ec = make_error_code(http_read_unsupported_http_version);
-    }
-
-    void parse_start_line(response& resp, const char* line, std::error_code& ec)
-    {
-        resp.status = status_type::unknown;
-        int http_version_major = -1;
-        resp.http_version_minor = -1;
-        sscanf(line, "HTTP/%i.%i %u", &http_version_major, &resp.http_version_minor, (unsigned int*)&resp.status);
-        if (http_version_major != 1 || !(resp.http_version_minor == 0 || resp.http_version_minor == 1))
-            ec = make_error_code(http_read_unsupported_http_version);
     }
 
     template<class Message>
@@ -965,8 +949,149 @@ namespace http
             if (buf.size() > max_header_size)
                 ec = make_error_code(http_read_header_line_too_big);
 
-            // Start line or header line
-            else if (state == start_line || state == header_line)
+            // Start line method (Request only)
+            else if (state == method)
+            {
+                constexpr std::size_t max_method_size{16};
+
+                // Sufficient data
+                if (buf.size() >= max_method_size)
+                {
+                    std::string_view method_str(&buf[0], max_method_size);
+                    const auto      end     = method_str.find(" ");
+                    const verb_type method  = verb_enum(method_str.substr(0, end));
+                    
+                    // Found
+                    if (method != UNKNOWN_VERB)
+                    {
+                        if constexpr (std::is_same_v<Message, request>)
+                            msg.verb = method;
+                        
+                        state = uri;
+                        buf.erase(begin(buf), begin(buf) + end + 1);
+                    }
+
+                    // Not found
+                    else
+                        ec = make_error_code(http_read_bad_method);
+                }
+                
+                // Insufficient
+                else
+                    break;                
+            }
+
+            // URI (Request only)
+            else if (state == uri)
+            {
+                const auto end = buf.find(" ");
+
+                // Found
+                if (end != std::string_view::npos)
+                {
+                    if constexpr (std::is_same_v<Message, request>)
+                        msg.uri = buf.substr(0, end);
+                    
+                    state = http_version;
+                    buf.erase(begin(buf), begin(buf) + end + 1);
+                }
+
+                // Not found
+                else
+                    break;
+            }
+
+            // HTTP version
+            else if (state == http_version)
+            {
+                constexpr std::size_t http_size{8};
+
+                // Sufficient data
+                if (buf.size() > 10)
+                {
+                    buf[http_size] = '\0';
+                    int major{-1};
+                    int minor{-1};
+                    const int ret = sscanf(&buf[0], "HTTP/%i.%i", &major, &minor);
+
+                    // Found 
+                    if (ret == 2 && major == 1 && (minor == 0 || minor == 1))
+                    {
+                        if constexpr (std::is_same_v<Message, request>)
+                        {
+                            state = header_line;
+                            buf.erase(begin(buf), begin(buf) + http_size + 2);
+                        }
+                            
+                        else
+                        {
+                            state = status_code;
+                            buf.erase(begin(buf), begin(buf) + http_size + 1);
+                        }
+                            
+                        msg.http_version_minor = minor;
+                    }
+
+                    // Not found
+                    else
+                        ec = make_error_code(http_read_unsupported_http_version);
+                }
+
+                // Insufficient
+                else
+                    break;
+            }
+
+            // Status code (response only)
+            else if (state == status_code)
+            {
+                const auto end = buf.find(" ");
+
+                // Sufficient
+                if (end != std::string::npos)
+                {
+                    buf[end] = '\0';
+                    int status{-1};
+                    const int ret = sscanf(&buf[0], "%i", &status);
+
+                    // Found
+                    if (ret == 1 && status >= (int)status_type::continue_ && status <= 1000)
+                    {
+                        if constexpr (std::is_same_v<Message, response>)
+                            msg.status = (status_type)status;
+                        state = status_msg;
+                        buf.erase(begin(buf), begin(buf) + end + 1);
+                    }
+                    
+                    // Not found
+                    else
+                        ec = make_error_code(http_read_bad_status);
+                }
+
+                // Insufficient
+                else
+                    break;
+            }
+
+            // Status label
+            else if (state == status_msg)
+            {
+                const auto end = buf.find("\r\n");
+
+                // Found
+                if (end != std::string::npos)
+                {
+                    state = header_line;
+                    buf.erase(begin(buf), begin(buf) + end + 2);
+                }
+
+                // Not Found
+                else
+                    ec = make_error_code(http_read_bad_status);
+            }
+
+            // Header line
+            else if (state == header_line)
             {
                 // Find EOL
                 char* end = strstr(&buf[0], "\r\n");
@@ -980,15 +1105,8 @@ namespace http
                 {
                     *end = '\0';
 
-                    // Start line
-                    if (state == start_line)
-                    {
-                        state = header_line;
-                        parse_start_line(msg, &buf[0], ec);
-                    }
-
                     // Header line
-                    else if (std::distance(&buf[0], end) > 0)
+                    if (std::distance(&buf[0], end) > 0)
                     {
                         char* kend = strstr(&buf[0], ": ");
 
@@ -1197,6 +1315,7 @@ namespace http
             case http_read_bad_method:                      return "HTTP request method bad";
             case http_read_unsupported_http_version:        return "HTTP version either bad or unsupported";
             case http_read_header_kv_delimiter_not_found:   return "Missing delimiter in HTTP header line";
+            case http_read_bad_status:                      return "HTTP status code bad";
             case http_read_header_unsupported_field:        return "HTTP header field unsupported";
             case http_write_unsupported_http_version:       return "HTTP message contains bad or unsupported http minor version";
             case http_write_request_bad_verb:               return "HTTP request contains bad verb";

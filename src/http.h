@@ -561,10 +561,11 @@ namespace http
     {
     private:
         static constexpr std::size_t max_header_size = 8192;
-        enum {start_line, header_line, body, done} state{start_line};
+        enum {method, uri, http_version, status_code, status_msg, header_line, body, done} state;
         size_t body_read{0};
 
     public:
+        parser();
         void reset();
         bool parse(Message& req, std::string& buf, std::error_code& ec);
     };
@@ -591,6 +592,7 @@ namespace http
         http_read_header_line_too_big = 1,
         http_read_bad_method,
         http_read_unsupported_http_version,
+        http_read_bad_status,
         http_read_header_kv_delimiter_not_found,
         http_read_header_unsupported_field,
         http_write_unsupported_http_version,
