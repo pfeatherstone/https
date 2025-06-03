@@ -1,6 +1,7 @@
 #include <cassert>
 #include <cstring>
 #include <cstdarg>
+#include <cctype>
 #include <algorithm>
 #include <filesystem>
 #include <boost/asio/version.hpp>
@@ -808,6 +809,52 @@ namespace http
             }
         }
 
+        return ret;
+    }
+
+//----------------------------------------------------------------------------------------------------------------
+
+    static char from_hex(char ch) {return std::isdigit(ch) ? ch - '0' : std::tolower(ch) - 'a' + 10;}
+    static char to_hex(char code) {constexpr char hex[] = "0123456789abcdef";  return hex[code & 15];}
+
+    std::string url_encode(std::string_view str)
+    {
+        std::string ret(str.size()*3+1, '\0');
+        char* buf = &ret[0];
+
+        for (auto c : str)
+        {
+            if (std::isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~')
+                *buf++ = c;
+            else if (c == ' ')
+                *buf++ = '+';
+            else
+                *buf++ = '%', *buf++ = to_hex(c >> 4), *buf++ = to_hex(c & 15);
+        }
+
+        ret.resize(strlen(ret.data()));
+        return ret;
+    }
+
+    std::string url_decode(std::string_view str)
+    {
+        std::string ret(str.size() + 1, '\0');
+        char* buf = &ret[0];
+
+        for (size_t i = 0 ; i < str.size() ; ++i)
+        {
+            if (str[i] == '%' && str.size() > (i+2))
+            {
+                *buf++ = from_hex(str[i+1]) << 4 | from_hex(str[i+2]);
+                i += 2;
+            }
+            else if (str[i] == '+')
+                *buf++ = ' ';
+            else
+                *buf++ = str[i];
+        }
+        
+        ret.resize(strlen(ret.data()));
         return ret;
     }
 
