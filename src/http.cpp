@@ -578,17 +578,21 @@ namespace http
         return (x << s) | (x >> (32 - s));
     }
 
-    const auto process_sha1_block = [](auto& hash, const auto& block, auto& words)
+    static constexpr void process_sha1_block(uint32_t (&hash)[5], const uint8_t (&block)[64])
     {
         // Initialise buffer
+        uint32_t w[80] = {};
+
         for (size_t i = 0 ; i < 16 ; ++i)
         {
-            std::memcpy(&words[i], &block[i*4], 4);
-            words[i] = htobe32(words[i]);
+            w[i]  = (block[i*4 + 0] << 24);
+            w[i] |= (block[i*4 + 1] << 16);
+            w[i] |= (block[i*4 + 2] << 8);
+            w[i] |= (block[i*4 + 3]);
         }
 
         for (size_t i = 16; i < 80; ++i)
-            words[i] = rotl(words[i-3] ^ words[i-8] ^ words[i-14] ^ words[i-16], 1);
+            w[i] = rotl(w[i-3] ^ w[i-8] ^ w[i-14] ^ w[i-16], 1);
         
         // Initialize
         uint32_t a = hash[0];
@@ -600,7 +604,7 @@ namespace http
 
         const auto fin = [&](const size_t i, const uint32_t k, const uint32_t f)
         {
-            const unsigned temp = rotl(a, 5) + f + e + k + words[i];
+            const unsigned temp = rotl(a, 5) + f + e + k + w[i];
             e = d;
             d = c;
             c = rotl(b, 30);
@@ -626,7 +630,7 @@ namespace http
         hash[2] += c;
         hash[3] += d;
         hash[4] += e;
-    };
+    }
 
     sha1& sha1::push(size_t ndata, const uint8_t* data)
     {
@@ -639,7 +643,7 @@ namespace http
             if (off == std::size(block))
             {
                 off = 0;
-                process_sha1_block(hash, block, words);
+                process_sha1_block(hash, block);
             }
         }
 
@@ -649,42 +653,43 @@ namespace http
     sha1::digest sha1::finish()
     {
         // number of bits
-        const uint64_t ml = htobe64(total*8);
+        const uint64_t ml = total*8;
 
         // Add 0x80
         block[off++] = 0x80;
         if (off == std::size(block))
         {
+            process_sha1_block(hash, block);
             off = 0;
-            process_sha1_block(hash, block, words);
         }
 
         // Add remaining 0 bits
-        const size_t end = off <= 56 ? 56 : 56 + 64;
-        for (size_t i = off ; i < end ; ++i)
+        if (off > 56)
         {
-            block[off++] = 0;
-            if (off == std::size(block))
-            {
-                off = 0;
-                process_sha1_block(hash, block, words);
-            }
+            for (size_t i = off ; i < 64 ; ++i)
+                block[off++] = 0;
+            process_sha1_block(hash, block);
+            off = 0;
         }
-        assert(off == 56);
+
+        for (size_t i = off ; i < 56 ; ++i)
+            block[off++] = 0;
         
         // Add message length
-        uint8_t tmp[8];
-        memcpy(tmp, &ml, 8);
-        for (size_t i = 0 ; i < 8 ; ++i)
-            block[off++] = tmp[i];
+        for (int i = 7 ; i >= 0 ; --i)
+            block[off++] = static_cast<uint8_t>((ml >> i*8) & 0xFF);
         assert(off == std::size(block));
-        process_sha1_block(hash, block, words);
+        process_sha1_block(hash, block);
 
         // Get final hash
-        sha1::digest h;
-        for (size_t i = 0 ; i < std::size(hash) ; ++i)
-            hash[i] = htobe32(hash[i]);
-        std::memcpy(&h[0], &hash[0], h.size());
+        digest h = {};
+        for (size_t i = 0 ; i < 5 ; ++i)
+        {
+            h[i*4+0] = static_cast<uint8_t>((hash[i] >> 24) & 0xFF);
+            h[i*4+1] = static_cast<uint8_t>((hash[i] >> 16) & 0xFF);
+            h[i*4+2] = static_cast<uint8_t>((hash[i] >> 8)  & 0xFF);
+            h[i*4+3] = static_cast<uint8_t>(hash[i]         & 0xFF);
+        }
         return h;
     }
 
