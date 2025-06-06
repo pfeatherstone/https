@@ -573,25 +573,9 @@ namespace http
 
 //----------------------------------------------------------------------------------------------------------------
 
-
     static constexpr uint32_t rotl(uint32_t x, size_t s)
     {
         return (x << s) | (x >> (32 - s));
-    }
-
-    static constexpr uint32_t f1(uint32_t b, uint32_t c, uint32_t d)
-    {
-        return d ^ (b & (c ^ d)); // original: f = (b & c) | ((~b) & d);
-    }
-
-    static constexpr uint32_t f2(uint32_t b, uint32_t c, uint32_t d)
-    {
-        return b ^ c ^ d;
-    }
-
-    static constexpr uint32_t f3(uint32_t b, uint32_t c, uint32_t d)
-    {
-        return (b & c) | (b & d) | (c & d);
     }
 
     const auto process_sha1_block = [](auto& hash, const auto& block, auto& words)
@@ -612,50 +596,29 @@ namespace http
         uint32_t c = hash[2];
         uint32_t d = hash[3];
         uint32_t e = hash[4];
+        size_t   i{0};
 
-        // first round
-        for (size_t i = 0; i < 4; ++i)
+        const auto fin = [&](const size_t i, const uint32_t k, const uint32_t f)
         {
-            const size_t offset = 5*i;
-            e += rotl(a,5) + f1(b,c,d) + words[offset  ] + 0x5a827999; b = rotl(b,30);
-            d += rotl(e,5) + f1(a,b,c) + words[offset+1] + 0x5a827999; a = rotl(a,30);
-            c += rotl(d,5) + f1(e,a,b) + words[offset+2] + 0x5a827999; e = rotl(e,30);
-            b += rotl(c,5) + f1(d,e,a) + words[offset+3] + 0x5a827999; d = rotl(d,30);
-            a += rotl(b,5) + f1(c,d,e) + words[offset+4] + 0x5a827999; c = rotl(c,30);
-        }
+            const unsigned temp = rotl(a, 5) + f + e + k + words[i];
+            e = d;
+            d = c;
+            c = rotl(b, 30);
+            b = a;
+            a = temp;
+        };
 
-        // second round
-        for (size_t i = 4; i < 8; ++i)
-        {
-            const size_t offset = 5*i;
-            e += rotl(a,5) + f2(b,c,d) + words[offset  ] + 0x6ed9eba1; b = rotl(b,30);
-            d += rotl(e,5) + f2(a,b,c) + words[offset+1] + 0x6ed9eba1; a = rotl(a,30);
-            c += rotl(d,5) + f2(e,a,b) + words[offset+2] + 0x6ed9eba1; e = rotl(e,30);
-            b += rotl(c,5) + f2(d,e,a) + words[offset+3] + 0x6ed9eba1; d = rotl(d,30);
-            a += rotl(b,5) + f2(c,d,e) + words[offset+4] + 0x6ed9eba1; c = rotl(c,30);
-        }
+        for (; i < 20; ++i) 
+            fin(i, 0x5A827999, (b & c) | (~b & d));
 
-        // third round
-        for (size_t i = 8; i < 12; ++i)
-        {
-            const size_t offset = 5*i;
-            e += rotl(a,5) + f3(b,c,d) + words[offset  ] + 0x8f1bbcdc; b = rotl(b,30);
-            d += rotl(e,5) + f3(a,b,c) + words[offset+1] + 0x8f1bbcdc; a = rotl(a,30);
-            c += rotl(d,5) + f3(e,a,b) + words[offset+2] + 0x8f1bbcdc; e = rotl(e,30);
-            b += rotl(c,5) + f3(d,e,a) + words[offset+3] + 0x8f1bbcdc; d = rotl(d,30);
-            a += rotl(b,5) + f3(c,d,e) + words[offset+4] + 0x8f1bbcdc; c = rotl(c,30);
-        }
-
-        // fourth round
-        for (size_t i = 12; i < 16; ++i)
-        {
-            const size_t offset = 5*i;
-            e += rotl(a,5) + f2(b,c,d) + words[offset  ] + 0xca62c1d6; b = rotl(b,30);
-            d += rotl(e,5) + f2(a,b,c) + words[offset+1] + 0xca62c1d6; a = rotl(a,30);
-            c += rotl(d,5) + f2(e,a,b) + words[offset+2] + 0xca62c1d6; e = rotl(e,30);
-            b += rotl(c,5) + f2(d,e,a) + words[offset+3] + 0xca62c1d6; d = rotl(d,30);
-            a += rotl(b,5) + f2(c,d,e) + words[offset+4] + 0xca62c1d6; c = rotl(c,30);
-        }
+        for (; i < 40; ++i) 
+            fin(i, 0x6ED9EBA1, b ^ c ^ d);
+        
+        for (; i < 60; ++i)
+            fin(i, 0x8F1BBCDC, (b & c) | (b & d) | (c & d));
+        
+        for (; i < 80; ++i)
+            fin(i, 0xCA62C1D6, b ^ c ^ d);
 
         // update hash
         hash[0] += a;
