@@ -636,14 +636,13 @@ namespace http
     {
         for (size_t i = 0 ; i < ndata ; ++i)
         {
-            block[off] = data[i];
-            ++off;
+            block[off++] = data[i];
             ++total;
 
             if (off == std::size(block))
             {
-                off = 0;
                 process_sha1_block(hash, block);
+                off = 0;
             }
         }
 
