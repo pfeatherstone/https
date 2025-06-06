@@ -817,7 +817,7 @@ namespace http
     static char from_hex(char ch) {return std::isdigit(ch) ? ch - '0' : std::tolower(ch) - 'a' + 10;}
     static char to_hex(char code) {constexpr char hex[] = "0123456789abcdef";  return hex[code & 15];}
 
-    std::string url_encode(std::string_view str)
+    static std::string url_encode(std::string_view str)
     {
         std::string ret(str.size()*3+1, '\0');
         char* buf = &ret[0];
@@ -836,7 +836,7 @@ namespace http
         return ret;
     }
 
-    std::string url_decode(std::string_view str)
+    static std::string url_decode(std::string_view str)
     {
         std::string ret(str.size() + 1, '\0');
         char* buf = &ret[0];
@@ -856,6 +856,45 @@ namespace http
         
         ret.resize(strlen(ret.data()));
         return ret;
+    }
+
+//----------------------------------------------------------------------------------------------------------------
+
+    void parse_url(std::string_view url, std::string& target, std::vector<query_param>& params, std::error_code& ec)
+    {
+        // Find target
+        auto end = url.find_first_of('?');
+        target   = url.substr(0, end);
+        auto pos = end + 1;
+        if (end == std::string::npos || pos >= url.size())
+            return;
+
+        const auto extract_kv = [&](std::string_view query)
+        {
+            const auto key_end = query.find_first_of('=');
+
+            if (key_end == std::string::npos || key_end+1 > query.size())
+            {
+                ec = make_error_code(http_read_bad_query_string);
+            }
+            else 
+            {
+                const std::string_view key = query.substr(0, key_end);
+                const std::string_view val = query.substr(key_end+1);
+                params.push_back({url_decode(key), url_decode(val)});
+                pos = end + 1;
+            }
+        };
+
+        // Find params
+        while ((end = url.find_first_of('&', pos)) != std::string::npos && !ec)
+        {
+            extract_kv(url.substr(pos, end-pos));
+            pos = end + 1;
+        }
+
+        if (!ec)
+            extract_kv(url.substr(pos));  
     }
 
 //----------------------------------------------------------------------------------------------------------------
@@ -1037,7 +1076,7 @@ namespace http
                 if (end != std::string_view::npos)
                 {
                     if constexpr (std::is_same_v<Message, request>)
-                        msg.uri = buf.substr(0, end);
+                        parse_url(buf.substr(0, end), msg.uri, msg.params, ec);
                     
                     state = http_version;
                     buf.erase(begin(buf), begin(buf) + end + 1);
@@ -1296,8 +1335,25 @@ namespace http
             return;
         }
 
+        // Serialize URL
+        std::string uri_encoded = req.uri;
+
+        if (!req.params.empty())
+        {
+            uri_encoded += '?';
+
+            for (size_t i = 0 ; i < req.params.size() ; ++i)
+            {
+                const std::string key_encoded = url_encode(req.params[i].key);
+                const std::string val_encoded = url_encode(req.params[i].val);
+                uri_encoded += key_encoded + '=' + val_encoded;
+                if (i < (req.params.size() - 1))
+                    uri_encoded += '&';
+            }
+        }
+
         // Set request line
-        const std::string status_str = format("%s %s HTTP/1.%i\r\n", verb_label(req.verb).data(), req.uri.c_str(), req.http_version_minor);
+        const std::string status_str = format("%s %s HTTP/1.%i\r\n", verb_label(req.verb).data(), uri_encoded.c_str(), req.http_version_minor);
 
         // Add default connection string if empty
         if (!contains(req.headers, field::connection))
@@ -1361,8 +1417,9 @@ namespace http
             case http_read_header_line_too_big:             return "HTTP header line is too big";
             case http_read_bad_method:                      return "HTTP request method bad";
             case http_read_unsupported_http_version:        return "HTTP version either bad or unsupported";
-            case http_read_header_kv_delimiter_not_found:   return "Missing delimiter in HTTP header line";
             case http_read_bad_status:                      return "HTTP status code bad";
+            case http_read_bad_query_string:                return "Bad query string formatting";
+            case http_read_header_kv_delimiter_not_found:   return "Missing delimiter in HTTP header line";
             case http_read_header_unsupported_field:        return "HTTP header field unsupported";
             case http_write_unsupported_http_version:       return "HTTP message contains bad or unsupported http minor version";
             case http_write_request_bad_verb:               return "HTTP request contains bad verb";

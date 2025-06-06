@@ -1,8 +1,89 @@
+#include <string_view>
+#include <vector>
 #include <http.h>
 #include "doctest.h"
 
+struct url_parsing_test_data
+{
+    std::string_view url;
+    std::string_view target_expected;
+    std::vector<std::pair<std::string_view, std::string_view>> query_params_expected;
+};
+
+static const url_parsing_test_data test_data[] = {
+    {
+        "/search?q=hello+world&lang=en",
+        "/search",
+        {{"q", "hello world"}, {"lang", "en"}}
+    },
+    {
+        "/api/data?weird=%26%25%3F&empty=&plus=1%2B1%3D2",
+        "/api/data",
+        {{"weird", "&%?"}, {"empty", ""}, {"plus", "1+1=2"}}
+    },
+    {
+        "/docs/space+test?file=name%20with%20spaces.txt&x=1",
+        "/docs/space+test",
+        {{"file", "name with spaces.txt"}, {"x", "1"}}
+    },
+    {
+        "/multi?key=value1&key=value2&key=value3",
+        "/multi",
+        {{"key", "value1"}, {"key", "value2"}, {"key", "value3"}}
+    },
+    {
+        "/equals?x=1%3D2%3D3",
+        "/equals",
+        {{"x", "1=2=3"}}
+    },
+    {
+        "/onlypath",
+        "/onlypath",
+        {}
+    },
+    {
+        "/weird?%3Fkey=%3Fvalue&key2=%26%3D",
+        "/weird",
+        {{"?key", "?value"}, {"key2", "&="}}
+    },
+    {
+        "/complex+path/with%2Fslashes?q=%2Fthis%2Fis%2Fa%2Ftest",
+        "/complex+path/with%2Fslashes",
+        {{"q", "/this/is/a/test"}}
+    },
+    {
+        "/emptykey?=novalue&foo=bar",
+        "/emptykey",
+        {{"", "novalue"}, {"foo", "bar"}}
+    },
+    {
+        "/plus+in+path?plus=1+2",
+        "/plus+in+path",
+        {{"plus", "1 2"}}
+    }
+};
+
 TEST_SUITE("[MESSAGE]")
 {
+    TEST_CASE("url parsing")
+    {
+        for (auto data : test_data)
+        {
+            std::error_code                 ec{};
+            std::string                     target;
+            std::vector<http::query_param>  params;
+            http::parse_url(data.url, target, params, ec);
+            REQUIRE(!bool(ec));
+            REQUIRE(target == data.target_expected);
+            REQUIRE(params.size() == data.query_params_expected.size());
+            for (size_t i = 0 ; i < params.size() ; ++i)
+            {
+                REQUIRE(params[i].key == data.query_params_expected[i].first);
+                REQUIRE(params[i].val == data.query_params_expected[i].second);
+            }
+        }
+    }
+
     TEST_CASE("serialise & parse bad requests")
     {
         http::request req;
@@ -47,7 +128,7 @@ TEST_SUITE("[MESSAGE]")
     {
         http::request req0;
         req0.verb = http::GET;
-        req0.uri  = "/path/to/resource/with%20spaces?q=search+term&empty=&weird=%26%25%3F";
+        req0.uri  = "/path/to/resource/with+spaces";
         req0.http_version_minor = 1;
         req0.add_header(http::host,                     "www.example.com:8080");
         req0.add_header(http::user_agent,               "CustomTestAgent/7.4.2 (compatible; FancyBot/1.0; +https://example.com/bot)");
@@ -62,6 +143,9 @@ TEST_SUITE("[MESSAGE]")
         req0.add_header(http::pragma,                   "no-cache");
         req0.add_header(http::content_type,             "application/json; charset=\"utf-8\"");
         req0.content = "{\"message\": \"This is a test body with some content.\"}";
+        req0.params.push_back({"q",     "search term"});
+        req0.params.push_back({"empty", ""});
+        req0.params.push_back({"weird", "&%?"});
         REQUIRE(req0.keep_alive());
         REQUIRE(req0.is_websocket_req());
 
@@ -112,6 +196,12 @@ TEST_SUITE("[MESSAGE]")
         REQUIRE(req0.verb == req1.verb);
         REQUIRE(req0.http_version_minor == req1.http_version_minor);
         REQUIRE(req0.uri == req1.uri);
+        REQUIRE(req0.params.size() == req1.params.size());
+        for (size_t i = 0 ; i < req0.params.size() ; ++i)
+        {
+            REQUIRE(req0.params[i].key == req1.params[i].key);
+            REQUIRE(req0.params[i].val == req1.params[i].val);
+        }
         REQUIRE(req0.headers.size() == req1.headers.size());
         for (size_t i = 0 ; i < req0.headers.size() ; ++i)
         {

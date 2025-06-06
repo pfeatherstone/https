@@ -513,8 +513,11 @@ namespace http
 
 //----------------------------------------------------------------------------------------------------------------
 
-    std::string url_encode(std::string_view str);
-    std::string url_decode(std::string_view str);
+    struct query_param
+    {
+        std::string key;
+        std::string val;
+    };
 
 //----------------------------------------------------------------------------------------------------------------
 
@@ -529,11 +532,12 @@ namespace http
 
     struct request
     {
-        verb_type           verb{UNKNOWN_VERB};
-        int                 http_version_minor{-1};
-        std::string         uri;
-        std::vector<header> headers;
-        std::string         content;
+        verb_type                   verb{UNKNOWN_VERB};
+        int                         http_version_minor{-1};
+        std::string                 uri;
+        std::vector<query_param>    params;
+        std::vector<header>         headers;
+        std::string                 content;
 
         void clear();
         void add_header(field f, std::string_view value);
@@ -560,7 +564,11 @@ namespace http
     };
 
 //----------------------------------------------------------------------------------------------------------------
-    
+
+    void parse_url(std::string_view url, std::string& target, std::vector<query_param>& params, std::error_code& ec);
+
+//----------------------------------------------------------------------------------------------------------------
+
     template<class Message>
     class parser
     {
@@ -598,6 +606,7 @@ namespace http
         http_read_bad_method,
         http_read_unsupported_http_version,
         http_read_bad_status,
+        http_read_bad_query_string,
         http_read_header_kv_delimiter_not_found,
         http_read_header_unsupported_field,
         http_write_unsupported_http_version,
