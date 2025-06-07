@@ -31,7 +31,7 @@ TEST_SUITE("[ASYNC]")
         std::string     buf_peer;
 
         req_client.verb   = http::GET;
-        req_client.uri    = "/data?name=bane&peace=lie";
+        req_client.uri    = "/data?name=bane&code=Peace+is+a+lie.+There+is+only+Passion.";
         req_client.add_header(http::host, "hello there!");
         req_client.add_header(http::user_agent, "Boost::asio " + std::to_string(BOOST_ASIO_VERSION)); // optional header
 
@@ -76,13 +76,22 @@ TEST_SUITE("[ASYNC]")
         REQUIRE(req_peer.params.size() == 2);
         REQUIRE(req_peer.params[0].key == "name");
         REQUIRE(req_peer.params[0].val == "bane");
-        REQUIRE(req_peer.params[1].key == "peace");
-        REQUIRE(req_peer.params[1].val == "lie");
-        const auto it = req_peer.find(http::host);
-        REQUIRE(it != req_peer.headers.end());
-        REQUIRE(it->value == "hello there!");
+        REQUIRE(req_peer.params[1].key == "code");
+        REQUIRE(req_peer.params[1].val == "Peace is a lie. There is only Passion.");
+        REQUIRE(req_peer.headers.size() == req_client.headers.size());
+        for (size_t i = 0 ; i < req_peer.headers.size() ; ++i)
+        {
+            REQUIRE(req_peer.headers[i].key   == req_client.headers[i].key);
+            REQUIRE(req_peer.headers[i].value == req_client.headers[i].value);
+        }
 
         REQUIRE(resp_client.status == http::ok);
         REQUIRE(resp_client.content_str == "There is only passion");
+        REQUIRE(resp_peer.headers.size() == resp_client.headers.size());
+        for (size_t i = 0 ; i < resp_client.headers.size() ; ++i)
+        {
+            REQUIRE(resp_peer.headers[i].key   == resp_client.headers[i].key);
+            REQUIRE(resp_peer.headers[i].value == resp_client.headers[i].value);
+        }
     }
 }
