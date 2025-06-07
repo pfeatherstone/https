@@ -3,7 +3,6 @@
 #include <boost/asio/version.hpp>
 #include <boost/asio/compose.hpp>
 #include <boost/asio/read.hpp>
-#include <boost/asio/read_until.hpp>
 #include <boost/asio/write.hpp>
 #include "http.h"
 
@@ -471,7 +470,6 @@ namespace http
 
                     req->verb = GET;
                     req->uri  = uri;
-                    req->http_version_minor = 1;
                     req->add_header(field::host,                  host);
                     req->add_header(field::user_agent,            "Boost::asio " + std::to_string(BOOST_ASIO_VERSION));
                     req->add_header(field::connection,            "upgrade");
@@ -581,8 +579,8 @@ namespace http
                     else
                     {
                         // Send response
-                        reply->status               = status_type::switching_protocols;
-                        reply->http_version_minor   = req.http_version_minor;
+                        reply->status   = status_type::switching_protocols;
+                        reply->version  = req.version;
                         reply->add_header(field::server,        "Boost::asio " + std::to_string(BOOST_ASIO_VERSION));
                         reply->add_header(field::upgrade,       "websocket");
                         reply->add_header(field::connection,    "Upgrade");

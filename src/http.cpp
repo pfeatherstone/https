@@ -906,7 +906,7 @@ namespace http
         uri.clear();
         headers.clear();
         content.clear();
-        http_version_minor = -1;
+        version = {};
         verb = UNKNOWN_VERB;
     }
 
@@ -934,7 +934,7 @@ namespace http
         }
 
         // HTTP 1.1 - default is to keep open otherwise default is to close
-        return http_version_minor == 1;
+        return version == HTTP_1_1;
     }
 
     bool request::is_websocket_req() const
@@ -946,8 +946,8 @@ namespace http
 
     void response::clear()
     {
-        status              = unknown;
-        http_version_minor  = -1;
+        status  = unknown;
+        version = {};
         headers.clear();
         content_str.clear();
         content_file.reset();
@@ -987,7 +987,7 @@ namespace http
         if constexpr (std::is_same_v<Message, request>)
             state = method;
         else
-            state = http_version;
+            state = version;
         body_read = 0;
     }
 
@@ -1045,7 +1045,7 @@ namespace http
                     if constexpr (std::is_same_v<Message, request>)
                         parse_url(buf.substr(0, end), msg.uri, msg.params, ec);
                     
-                    state = http_version;
+                    state = version;
                     buf.erase(begin(buf), begin(buf) + end + 1);
                 }
 
@@ -1055,7 +1055,7 @@ namespace http
             }
 
             // HTTP version
-            else if (state == http_version)
+            else if (state == version)
             {
                 constexpr std::size_t http_size{8};
 
@@ -1082,7 +1082,7 @@ namespace http
                             buf.erase(begin(buf), begin(buf) + http_size + 1);
                         }
                             
-                        msg.http_version_minor = minor;
+                        msg.version = (http_version)minor;
                     }
 
                     // Not found
@@ -1131,45 +1131,39 @@ namespace http
             {
                 const auto end = buf.find("\r\n");
 
-                // Found
+                // Sufficient
                 if (end != std::string::npos)
                 {
                     state = header_line;
                     buf.erase(begin(buf), begin(buf) + end + 2);
                 }
 
-                // Not Found
+                // Insufficient
                 else
-                    ec = make_error_code(http_read_bad_status);
+                    break;
             }
 
             // Header line
             else if (state == header_line)
             {
-                // Find EOL
-                char* end = strstr(&buf[0], "\r\n");
+                const auto end = buf.find("\r\n");
 
-                // Not found
-                if (end == nullptr)
-                    break;
-                    
-                // Found
-                else
+                // Sufficient
+                if (end != std::string::npos)
                 {
-                    *end = '\0';
-
-                    // Header line
-                    if (std::distance(&buf[0], end) > 0)
+                    // Found header
+                    if (end > 0)
                     {
-                        char* kend = strstr(&buf[0], ": ");
+                        std::string_view line(&buf[0], end);
+                        const auto  kend = line.find(": ");
 
-                        if (kend == nullptr)
+                        if (kend == std::string_view::npos)
                             ec = make_error_code(http_read_header_kv_delimiter_not_found);
-                        
+   
                         else
                         {
-                            auto field = field_enum(std::string_view(&buf[0], std::distance(&buf[0], kend)));
-                            auto value = std::string_view(kend+2, std::distance(kend+2, end));
+                            auto field = field_enum(line.substr(0, kend));
+                            auto value = line.substr(kend+2);
 
                             if (field == unknown_field)
                                 ec = make_error_code(http_read_header_unsupported_field);
@@ -1196,8 +1190,12 @@ namespace http
                             state = done;
                     }
 
-                    buf.erase(begin(buf), begin(buf) + std::distance(&buf[0], end + 2));
+                    buf.erase(begin(buf), begin(buf) + end + 2);
                 }
+
+                // Insufficient
+                else
+                    break;
             }
 
             // Body
@@ -1289,12 +1287,6 @@ namespace http
             return;
         }
 
-        if (!(req.http_version_minor == 0 || req.http_version_minor == 1))
-        {
-            ec = make_error_code(http::http_write_unsupported_http_version);
-            return;
-        }
-
         // HTTP requests require "host" field
         if (!contains(req.headers, field::host))
         {
@@ -1320,7 +1312,7 @@ namespace http
         }
 
         // Set request line
-        const std::string status_str = format("%s %s HTTP/1.%i\r\n", verb_label(req.verb).data(), uri_encoded.c_str(), req.http_version_minor);
+        const std::string status_str = format("%s %s HTTP/1.%i\r\n", verb_label(req.verb).data(), uri_encoded.c_str(), (int)req.version);
 
         // Add default connection string if empty
         if (!contains(req.headers, field::connection))
@@ -1340,9 +1332,15 @@ namespace http
 
     void serialize_header(response& resp, std::string& buf, std::error_code& ec)
     {
+        if (resp.status == unknown)
+        {
+            ec = make_error_code(http_write_response_missing_status);
+            return;
+        }
+
         // Set status string
         char status_str[64] = {0};
-        snprintf(status_str, sizeof(status_str), "HTTP/1.%i %i %s\r\n", resp.http_version_minor, resp.status, status_label(resp.status).data());
+        snprintf(status_str, sizeof(status_str), "HTTP/1.%i %i %s\r\n", (int)resp.version, resp.status, status_label(resp.status).data());
 
         // Add default server string if empty
         if (!contains(resp.headers, field::server))
@@ -1381,17 +1379,17 @@ namespace http
         {
             switch(static_cast<error>(ev))
             {
-            case http_read_header_line_too_big:             return "HTTP header line is too big";
-            case http_read_bad_method:                      return "HTTP request method bad";
+            case http_read_header_line_too_big:             return "Header line is too big";
+            case http_read_bad_method:                      return "Request method bad";
             case http_read_unsupported_http_version:        return "HTTP version either bad or unsupported";
             case http_read_bad_status:                      return "HTTP status code bad";
             case http_read_bad_query_string:                return "Bad query string formatting";
             case http_read_header_kv_delimiter_not_found:   return "Missing delimiter in HTTP header line";
             case http_read_header_unsupported_field:        return "HTTP header field unsupported";
-            case http_write_unsupported_http_version:       return "HTTP message contains bad or unsupported http minor version";
             case http_write_request_bad_verb:               return "HTTP request contains bad verb";
             case http_write_request_missing_uri:            return "HTTP request missing URI";
             case http_write_request_missing_host:           return "HTTP request missing 'host' filed";
+            case http_write_response_missing_status:        return "Missing status code";
             case ws_handshake_bad_status:                   return "Status code not 101 (Switching Protocol) in websocket upgrade response";
             case ws_handshake_bad_headers:                  return "Missing connection: upgrade or upgrade: websocket in HTTP headers";
             case ws_handshake_missing_seq_accept:           return "Missing seq-websocket-accept in HTTP websocket switching response message";

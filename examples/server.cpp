@@ -357,7 +357,7 @@ awaitable_strand http_session (
             // Reset response, set http version and keep alive status of response
             const bool keep_alive = req.keep_alive();
             resp.clear();
-            resp.http_version_minor = req.http_version_minor;
+            resp.version = req.version;
             resp.keep_alive(keep_alive);
             
             // Handle request and set response

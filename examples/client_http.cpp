@@ -65,7 +65,6 @@ awaitable_strand http_session(std::string_view host)
         // Prepare request
         req.verb   = http::GET;
         req.uri    = "/get";
-        req.http_version_minor = 1;
         req.add_header(http::host, host); // mandatory in HTTP/1.1 in request messages
         req.add_header(http::user_agent, "Boost::asio " + std::to_string(BOOST_ASIO_VERSION)); // optional header
 

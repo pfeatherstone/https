@@ -12,6 +12,14 @@ namespace http
 
 //----------------------------------------------------------------------------------------------------------------
 
+    enum http_version : int
+    {
+        HTTP_1_0 = 0,
+        HTTP_1_1
+    };
+
+//----------------------------------------------------------------------------------------------------------------
+
     enum verb_type : unsigned int
     {
         UNKNOWN_VERB = 0,
@@ -532,7 +540,7 @@ namespace http
     struct request
     {
         verb_type                   verb{UNKNOWN_VERB};
-        int                         http_version_minor{-1};
+        http_version                version{HTTP_1_1};
         std::string                 uri;
         std::vector<query_param>    params;
         std::vector<header>         headers;
@@ -550,7 +558,7 @@ namespace http
     struct response
     {
         status_type         status{unknown};
-        int                 http_version_minor{-1};
+        http_version        version{HTTP_1_1};
         std::vector<header> headers;
         std::string         content_str;
         file_ptr            content_file;
@@ -573,7 +581,7 @@ namespace http
     {
     private:
         static constexpr std::size_t max_header_size = 8192;
-        enum {method, uri, http_version, status_code, status_msg, header_line, body, done} state;
+        enum {method, uri, version, status_code, status_msg, header_line, body, done} state;
         size_t body_read{0};
 
     public:
@@ -608,10 +616,10 @@ namespace http
         http_read_bad_query_string,
         http_read_header_kv_delimiter_not_found,
         http_read_header_unsupported_field,
-        http_write_unsupported_http_version,
         http_write_request_bad_verb,
         http_write_request_missing_uri,
         http_write_request_missing_host,
+        http_write_response_missing_status,
         ws_handshake_bad_status,
         ws_handshake_bad_headers,
         ws_handshake_missing_seq_accept,

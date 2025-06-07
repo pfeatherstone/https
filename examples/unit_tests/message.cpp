@@ -84,7 +84,7 @@ TEST_SUITE("[MESSAGE]")
         }
     }
 
-    TEST_CASE("serialise & parse bad requests")
+    TEST_CASE("serialise bad requests")
     {
         http::request req;
 
@@ -97,25 +97,10 @@ TEST_SUITE("[MESSAGE]")
             req.verb = http::GET;
         }
 
-        SUBCASE("missing http version")
-        {
-            req.verb = http::GET;
-            req.uri  = "/index";
-        }
-
         SUBCASE("missing host")
         {
             req.verb = http::GET;
             req.uri  = "/index";
-            req.http_version_minor = 1;
-        }
-
-        SUBCASE("bad http version")
-        {
-            req.verb = http::GET;
-            req.uri  = "/index";
-            req.http_version_minor = 100;
-            req.add_header(http::host, "www.example.com");
         }
 
         std::error_code ec{};
@@ -124,12 +109,21 @@ TEST_SUITE("[MESSAGE]")
         REQUIRE(bool(ec));
     }
 
+    TEST_CASE("serialise bad response")
+    {
+        http::response resp;
+        SUBCASE("empty"){}
+        std::error_code ec{};
+        std::string buf;
+        http::serialize_header(resp, buf, ec);
+        REQUIRE(bool(ec));
+    }
+
     TEST_CASE("serialize & parse good request")
     {
         http::request req0;
         req0.verb = http::GET;
         req0.uri  = "/path/to/resource/with+spaces";
-        req0.http_version_minor = 1;
         req0.add_header(http::host,                     "www.example.com:8080");
         req0.add_header(http::user_agent,               "CustomTestAgent/7.4.2 (compatible; FancyBot/1.0; +https://example.com/bot)");
         req0.add_header(http::accept,                   "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
@@ -194,7 +188,7 @@ TEST_SUITE("[MESSAGE]")
         
         REQUIRE(buf.empty());
         REQUIRE(req0.verb == req1.verb);
-        REQUIRE(req0.http_version_minor == req1.http_version_minor);
+        REQUIRE(req0.version == req1.version);
         REQUIRE(req0.uri == req1.uri);
         REQUIRE(req0.params.size() == req1.params.size());
         for (size_t i = 0 ; i < req0.params.size() ; ++i)
@@ -209,5 +203,69 @@ TEST_SUITE("[MESSAGE]")
             REQUIRE(req0.headers[i].value == req1.headers[i].value);
         }
         REQUIRE(req0.content == req1.content);
+    }
+
+    TEST_CASE("serialize & parse good response")
+    {
+        http::response resp0;
+        resp0.status = http::ok;
+        resp0.add_header(http::date,            "Sat, 07 Jun 2025 11:34:29 GMT");
+        resp0.add_header(http::content_type,    "application/json");
+        resp0.add_header(http::set_cookie,      "sails.sid=s%3AzNjVxqbbKjdhW62QxWPrO9_s7iw6gFfj.YkpdH7mCTkx%2FC%2BgLXyBzXETRD7gKyFu%2BKWMS43uKq4Y; Path=/; HttpOnly");
+
+        // Serialize
+        std::error_code ec{};
+        std::string buf;
+        http::serialize_header(resp0, buf, ec);
+        buf.append(resp0.content_str);
+        REQUIRE(!bool(ec));
+
+        // Parse
+        http::response resp1;
+        
+        SUBCASE("parse entire message")
+        {
+            const bool finished = http::parser<http::response>{}.parse(resp1, buf, ec);
+            REQUIRE(!bool(ec));
+            REQUIRE(finished);
+        }
+
+        SUBCASE("parse block by block")
+        {
+            http::parser<http::response> parser;
+
+            size_t blocksize{};
+
+            SUBCASE("blocksize == 1")    { blocksize = 1;}
+            SUBCASE("blocksize == 10")   { blocksize = 10;}
+            SUBCASE("blocksize == 99")   { blocksize = 99;}
+            SUBCASE("blocksize == 128")  { blocksize = 128;}
+            SUBCASE("blocksize == 1024") { blocksize = 1024;}
+
+            size_t nblocks = (buf.size() + blocksize - 1) / blocksize;
+            std::string  block;
+
+            for (size_t i = 0 ; i < nblocks ; ++i)
+            {
+                const size_t len = std::min(blocksize, buf.size());
+                block.append(&buf[0], len);
+                buf.erase(begin(buf), begin(buf) + len);
+                const bool finished = parser.parse(resp1, block, ec);
+                REQUIRE_MESSAGE(!bool(ec), ec.message());
+                REQUIRE(finished == (i == (nblocks-1)));
+            }
+            REQUIRE(block.empty());
+        }
+        
+        REQUIRE(buf.empty());
+        REQUIRE(resp0.status == resp1.status);
+        REQUIRE(resp0.version == resp1.version);
+        REQUIRE(resp0.headers.size() == resp1.headers.size());
+        for (size_t i = 0 ; i < resp0.headers.size() ; ++i)
+        {
+            REQUIRE(resp0.headers[i].key == resp1.headers[i].key);
+            REQUIRE(resp0.headers[i].value == resp1.headers[i].value);
+        }
+        REQUIRE(resp0.content_str == resp1.content_str);
     }
 }
