@@ -110,12 +110,12 @@ struct api_options
 //----------------------------------------------------------------------------------------------------------------
 //----------------------------------------------------------------------------------------------------------------
 
-void http_unauthorized (const http::request& req, http::response& resp, std::string msg)
+void http_unauthorized (const http::request& req, http::response& resp, std::string_view msg)
 {
     resp.status = http::status_type::unauthorized;
     resp.add_header(http::field::www_authenticate,    "Basic realm=\"Access to the staging site\"");
     resp.add_header(http::field::cache_control,       "no-store");
-    resp.content_str = std::move(msg);
+    resp.content_str = msg;
 }
 
 void http_bad_request (const http::request& req, http::response& resp, std::string_view why)
@@ -466,6 +466,10 @@ int main(int argc, char* argv[])
             .use_tls        = use_tls,
 
             .http_handlers = {
+                {"/ok", [&](const http::request& req, http::response& reply)
+                {
+                    reply.status = http::status_type::ok;
+                }},
                 {"/darcy", [&](const http::request& req, http::response& reply)
                 {
                     reply.status = http::status_type::ok;

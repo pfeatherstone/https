@@ -29,6 +29,32 @@ Build as above. Run using:
 $ ./build/tests
 ```
 
+## Benchmarks
+
+I benchmarked the example [server](examples/server.cpp) using [ab](https://httpd.apache.org/docs/2.4/programs/ab.html). 
+
+I used the following commands for HTTP and HTTPS respectively:
+
+```bash
+$ ab -A Tommy:Aldridge -n 500000 -c <C> -k http://localhost:8000/ok
+$ ab -A Tommy:Aldridge -n 500000 -c <C> -k https://localhost:8000/ok
+```
+
+Note, the example server is single threaded, uses C++20 coroutines and basic authentication (not particularly well optimized). I modified the program to use TLS 1.2 as `ab` doesn't support TLS 1.3. I have an Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz 12 core processor. I'm using gcc 13.1.0 and openssl 3.0.2. Here are the results:
+
+| Transport | Connections | Requests / s |
+| --------- | ----------- | -------------|
+| TCP       | 1           | 29268.81     |
+| TCP       | 2           | 41123.15     |
+| TCP       | 5           | 42906.12     |
+| TCP       | 10          | 43582.05     |
+| TLS       | 1           | 20317.42     |
+| TLS       | 2           | 32633.12     |
+| TLS       | 5           | 35227.99     |
+| TLS       | 10          | 36615.81     |
+
+Not bad.
+
 ## Roadmap
 - [ ] Chunked encoding
 - [ ] Documentation
