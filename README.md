@@ -44,14 +44,14 @@ Note, the example server is single threaded, uses C++20 coroutines and basic aut
 
 | Transport | Connections | Requests / s |
 | --------- | ----------- | -------------|
-| TCP       | 1           | 29268.81     |
-| TCP       | 2           | 41123.15     |
-| TCP       | 5           | 42906.12     |
-| TCP       | 10          | 43582.05     |
-| TLS       | 1           | 20317.42     |
-| TLS       | 2           | 32633.12     |
-| TLS       | 5           | 35227.99     |
-| TLS       | 10          | 36615.81     |
+| TCP       | 1           | 42654.66     |
+| TCP       | 2           | 74901.81     |
+| TCP       | 5           | 88949.07     |
+| TCP       | 10          | 94381.10     |
+| TLS       | 1           | 30400.27     |
+| TLS       | 2           | 50593.61     |
+| TLS       | 5           | 57112.41     |
+| TLS       | 10          | 62193.85     |
 
 Not bad.
 

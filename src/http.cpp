@@ -428,11 +428,17 @@ namespace http
 
 //----------------------------------------------------------------------------------------------------------------
 
-    std::string to_lower(std::string_view s)
+    constexpr char fast_ascii_tolower(const char c) 
     {
-        std::string out(s.length(), '\0');
-        std::transform(s.begin(), s.end(), out.begin(), [](unsigned char c) { return std::tolower(c); });
-        return out;
+        // The following is a tad faster than std::tolower(c)
+        return (c >= 'A' && c <= 'Z') ? (c | 0x20) : c;
+    }
+
+    constexpr bool case_insenstive_equals(std::string_view a, std::string_view b)
+    {
+        return a.size() == b.size() && std::equal(begin(a), end(a), begin(b), [](char ac, char bc) {
+            return fast_ascii_tolower(ac) == fast_ascii_tolower(bc);
+        });
     }
 
     std::string_view field_label(field f)
@@ -443,7 +449,7 @@ namespace http
     field field_enum(std::string_view f)
     {
         for (unsigned int i = 0 ; i < std::size(FIELDS) ; ++i)
-            if (FIELDS[i] == to_lower(f))
+            if (case_insenstive_equals(FIELDS[i], f))
                 return (field)i;
         return unknown_field;
     }
