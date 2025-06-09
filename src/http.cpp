@@ -4,6 +4,7 @@
 #include <cctype>
 #include <algorithm>
 #include <filesystem>
+#include <unordered_map>
 #include <boost/asio/version.hpp>
 #include "http.h"
 
@@ -428,18 +429,45 @@ namespace http
 
 //----------------------------------------------------------------------------------------------------------------
 
-    constexpr char fast_ascii_tolower(const char c) 
+    constexpr char fast_ascii_tolower(const char c) noexcept
     {
         // The following is a tad faster than std::tolower(c)
         return (c >= 'A' && c <= 'Z') ? (c | 0x20) : c;
     }
 
-    constexpr bool case_insenstive_equals(std::string_view a, std::string_view b)
+    constexpr bool case_insenstive_equals(std::string_view a, std::string_view b) noexcept
     {
         return a.size() == b.size() && std::equal(begin(a), end(a), begin(b), [](char ac, char bc) {
             return fast_ascii_tolower(ac) == fast_ascii_tolower(bc);
         });
     }
+
+    struct ci_hash 
+    {
+        constexpr size_t operator()(std::string_view sv) const noexcept 
+        {
+            constexpr std::size_t fnv_offset_basis  = 14695981039346656037ull;
+            constexpr std::size_t fnv_prime         = 1099511628211ull;
+            std::size_t hash = fnv_offset_basis;
+
+            for (char c : sv) {
+                hash ^= static_cast<std::size_t>(fast_ascii_tolower(c));
+                hash *= fnv_prime;
+            }
+
+            return hash;
+        }
+    };
+
+    struct ci_compare { constexpr bool operator()(std::string_view lhs, std::string_view rhs) const noexcept { return case_insenstive_equals(lhs, rhs); } };
+
+    const auto FIELD_MAP = []
+    {
+        std::unordered_map<std::string_view, field, ci_hash, ci_compare> m;
+        for (size_t i = 0 ; i < std::size(FIELDS) ; ++i)
+            m[FIELDS[i]] = (field)i;
+        return m;
+    }();
 
     std::string_view field_label(field f)
     {
@@ -448,10 +476,12 @@ namespace http
 
     field field_enum(std::string_view f)
     {
-        for (unsigned int i = 0 ; i < std::size(FIELDS) ; ++i)
-            if (case_insenstive_equals(FIELDS[i], f))
-                return (field)i;
-        return unknown_field;
+        const auto it = FIELD_MAP.find(f);
+        return it != end(FIELD_MAP) ? it->second : unknown_field;
+        // for (unsigned int i = 0 ; i < std::size(FIELDS) ; ++i)
+        //     if (case_insenstive_equals(FIELDS[i], f))
+        //         return (field)i;
+        // return unknown_field;
     }
 
 //----------------------------------------------------------------------------------------------------------------
