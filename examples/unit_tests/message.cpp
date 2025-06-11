@@ -65,6 +65,23 @@ static const url_parsing_test_data test_data[] = {
 
 TEST_SUITE("[MESSAGE]")
 {
+    TEST_CASE("enums")
+    {
+        REQUIRE(http::verb_enum(http::verb_label(http::UNKNOWN_VERB))   == http::UNKNOWN_VERB);
+        REQUIRE(http::verb_enum(http::verb_label(http::GET))            == http::GET);
+        REQUIRE(http::verb_enum(http::verb_label(http::HEAD))           == http::HEAD);
+        REQUIRE(http::verb_enum(http::verb_label(http::POST))           == http::POST);
+        REQUIRE(http::verb_enum(http::verb_label(http::PUT))            == http::PUT);
+        REQUIRE(http::verb_enum(http::verb_label(http::DELETE))         == http::DELETE);
+        REQUIRE(http::verb_enum(http::verb_label(http::CONNECT))        == http::CONNECT);
+        REQUIRE(http::verb_enum(http::verb_label(http::OPTIONS))        == http::OPTIONS);
+        REQUIRE(http::verb_enum(http::verb_label(http::TRACE))          == http::TRACE);
+        REQUIRE(http::verb_enum(http::verb_label(http::PATCH))          == http::PATCH);
+
+        for (unsigned int f = http::unknown_field ; f <= http::xref ; ++f)
+            REQUIRE(http::field_enum(http::field_label((http::field)f)) == f);
+    }
+
     TEST_CASE("url parsing")
     {
         for (auto data : test_data)
