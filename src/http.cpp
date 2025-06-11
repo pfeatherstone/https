@@ -428,19 +428,6 @@ namespace http
 
 //----------------------------------------------------------------------------------------------------------------
 
-    constexpr char fast_ascii_tolower(const char c) 
-    {
-        // The following is a tad faster than std::tolower(c)
-        return (c >= 'A' && c <= 'Z') ? (c | 0x20) : c;
-    }
-
-    constexpr bool case_insenstive_equals(std::string_view a, std::string_view b)
-    {
-        return a.size() == b.size() && std::equal(begin(a), end(a), begin(b), [](char ac, char bc) {
-            return fast_ascii_tolower(ac) == fast_ascii_tolower(bc);
-        });
-    }
-
     std::string_view field_label(field f)
     {
         return FIELDS[f];
@@ -449,7 +436,7 @@ namespace http
     field field_enum(std::string_view f)
     {
         for (unsigned int i = 0 ; i < std::size(FIELDS) ; ++i)
-            if (case_insenstive_equals(FIELDS[i], f))
+            if (FIELDS[i] == f)
                 return (field)i;
         return unknown_field;
     }
@@ -981,6 +968,14 @@ namespace http
 
 //----------------------------------------------------------------------------------------------------------------
 
+    constexpr char fast_ascii_tolower(const char c) 
+    {
+        // The following is a tad faster than std::tolower(c)
+        return (c >= 'A' && c <= 'Z') ? (c | 0x20) : c;
+    }
+
+//----------------------------------------------------------------------------------------------------------------
+
     template<class Message>
     parser<Message>::parser()
     {
@@ -1017,7 +1012,7 @@ namespace http
                 if (buf.size() >= max_method_size)
                 {
                     std::string_view method_str(&buf[0], max_method_size);
-                    const auto      end     = method_str.find(" ");
+                    const auto      end     = method_str.find(' ');
                     const verb_type method  = verb_enum(method_str.substr(0, end));
                     
                     // Found
@@ -1043,16 +1038,17 @@ namespace http
             // URI (Request only)
             else if (state == uri)
             {
-                const auto end = buf.find(" ");
+                auto* end = strchr(&buf[0], ' ');
 
                 // Found
-                if (end != std::string_view::npos)
+                if (end != nullptr)
                 {
+                    const size_t len = std::distance(&buf[0], end);
                     if constexpr (std::is_same_v<Message, request>)
-                        parse_url(buf.substr(0, end), msg.uri, msg.params, ec);
+                        parse_url(std::string_view(&buf[0],len), msg.uri, msg.params, ec);
                     
                     state = version;
-                    buf.erase(begin(buf), begin(buf) + end + 1);
+                    buf.erase(begin(buf), begin(buf) + len + 1);
                 }
 
                 // Not found
@@ -1104,12 +1100,13 @@ namespace http
             // Status code (response only)
             else if (state == status_code)
             {
-                const auto end = buf.find(" ");
+                auto* end = strchr(&buf[0], ' ');
 
                 // Sufficient
-                if (end != std::string::npos)
+                if (end != nullptr)
                 {
-                    buf[end] = '\0';
+                    const size_t len = std::distance(&buf[0], end);
+                    *end = '\0';
                     int status{-1};
                     const int ret = sscanf(&buf[0], "%i", &status);
 
@@ -1119,7 +1116,7 @@ namespace http
                         if constexpr (std::is_same_v<Message, response>)
                             msg.status = (status_type)status;
                         state = status_msg;
-                        buf.erase(begin(buf), begin(buf) + end + 1);
+                        buf.erase(begin(buf), begin(buf) + len + 1);
                     }
                     
                     // Not found
@@ -1135,13 +1132,13 @@ namespace http
             // Status label
             else if (state == status_msg)
             {
-                const auto end = buf.find("\r\n");
+                auto* end = strstr(&buf[0], "\r\n");
 
                 // Sufficient
-                if (end != std::string::npos)
+                if (end != nullptr)
                 {
                     state = header_line;
-                    buf.erase(begin(buf), begin(buf) + end + 2);
+                    buf.erase(begin(buf), begin(buf) + std::distance(&buf[0], end) + 2);
                 }
 
                 // Insufficient
@@ -1152,24 +1149,28 @@ namespace http
             // Header line
             else if (state == header_line)
             {
-                const auto end = buf.find("\r\n");
+                auto* end = strstr(&buf[0], "\r\n");
 
                 // Sufficient
-                if (end != std::string::npos)
+                if (end != nullptr)
                 {
-                    // Found header
-                    if (end > 0)
-                    {
-                        std::string_view line(&buf[0], end);
-                        const auto  kend = line.find(": ");
+                    const size_t line_length = std::distance(&buf[0], end);
 
-                        if (kend == std::string_view::npos)
+                    // Found header
+                    if (line_length > 0)
+                    {
+                        auto* kend = strstr(&buf[0], ": ");
+
+                        if (kend == nullptr)
                             ec = make_error_code(http_read_header_kv_delimiter_not_found);
    
                         else
                         {
-                            auto field = field_enum(line.substr(0, kend));
-                            auto value = line.substr(kend+2);
+                            for (auto* ptr = &buf[0] ; ptr != kend ; ++ptr)
+                                *ptr = fast_ascii_tolower(*ptr);
+
+                            auto field = field_enum(std::string_view(&buf[0], std::distance(&buf[0], kend)));
+                            auto value = std::string_view(kend+2, std::distance(kend+2, end));
 
                             if (field == unknown_field)
                                 ec = make_error_code(http_read_header_unsupported_field);
@@ -1196,7 +1197,7 @@ namespace http
                             state = done;
                     }
 
-                    buf.erase(begin(buf), begin(buf) + end + 2);
+                    buf.erase(begin(buf), begin(buf) + line_length + 2);
                 }
 
                 // Insufficient
