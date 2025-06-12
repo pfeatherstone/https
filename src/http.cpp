@@ -700,40 +700,42 @@ namespace http
         return table;
     }();
 
+    constexpr uint8_t top6(const uint8_t a) {return a >> 2;}
+    constexpr uint8_t bot6(const uint8_t a) {return a & 0x3f;}
+    constexpr uint8_t top4(const uint8_t a) {return a >> 4;}
+    constexpr uint8_t bot4(const uint8_t a) {return a & 0x0f;}
+    constexpr uint8_t top2(const uint8_t a) {return a >> 6;}
+    constexpr uint8_t bot2(const uint8_t a) {return a & 0x03;}
+
     std::string base64_encode(const size_t ndata, const uint8_t* data)
     {
         std::string ret;
         ret.resize((ndata+2) / 3 * 4);
-        size_t i{0};
-        char*  out{&ret[0]};
+        char* out{&ret[0]};
 
-        while (i < ndata) 
+        for (size_t i = 0 ; i < ndata ; i += 3)
         {
-            *out++ = base64_encode_table[(data[i+0] & 0xfc) >> 2];
-
-            if (i+1 < ndata) 
+            if (i+2 < ndata)
             {
-                *out++ = base64_encode_table[((data[i+0] & 0x03) << 4) + ((data[i + 1] & 0xf0) >> 4)];
-
-                if (i+2 < ndata) 
-                {
-                    *out++ = base64_encode_table[((data[i+1] & 0x0f) << 2) + ((data[i + 2] & 0xc0) >> 6)];
-                    *out++ = base64_encode_table[  data[i+2] & 0x3f];
-                }
-                else 
-                {
-                    *out++ = base64_encode_table[(data[i+1] & 0x0f) << 2];
-                    *out++ = '=';
-                }
+                *out++ = base64_encode_table[top6(data[i+0])];
+                *out++ = base64_encode_table[(bot2(data[i+0]) << 4) | top4(data[i+1])];
+                *out++ = base64_encode_table[(bot4(data[i+1]) << 2) | top2(data[i+2])];
+                *out++ = base64_encode_table[bot6(data[i+2])];
             }
-            else 
+            else if (i+1 < ndata)
             {
-                *out++ = base64_encode_table[(data[i+0] & 0x03) << 4];
+                *out++ = base64_encode_table[top6(data[i+0])];
+                *out++ = base64_encode_table[(bot2(data[i+0]) << 4) | top4(data[i+1])];
+                *out++ = base64_encode_table[bot4(data[i+1]) << 2];
+                *out++ = '=';
+            }
+            else
+            {
+                *out++ = base64_encode_table[top6(data[i+0])];
+                *out++ = base64_encode_table[bot2(data[i+0]) << 4];
                 *out++ = '=';
                 *out++ = '=';
             }
-
-            i += 3;
         }
 
         return ret;
