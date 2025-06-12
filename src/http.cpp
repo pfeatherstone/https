@@ -744,32 +744,32 @@ namespace http
     std::vector<uint8_t> base64_decode(std::string_view data)
     {
         std::vector<uint8_t> ret;
-        ret.reserve(data.size() / 4 * 3);
-        uint8_t word{0};
-        uint8_t off{8};
+        ret.resize((data.size() + 3)/ 4 * 3);
+        uint8_t* out{&ret[0]};
 
-        for (size_t i = 0 ; i < data.size() ; ++i)
+        for (size_t i = 0 ; i < data.size() ; i += 4)
         {
-            if (data[i] == '=')
-                continue;
+            const uint8_t a0 = base64_decoded_table[data[i+0]];
+            const uint8_t a1 = base64_decoded_table[data[i+1]];
 
-            const uint8_t sixtet = base64_decoded_table[data[i]];
+            *out++ = (a0 << 2) | (a1 >> 4);
 
-            for (int j = 5 ; j >= 0 ; --j)
+            if ((i+2) < data.size() && data[i+2] != '=')
             {
-                const uint8_t bit = (sixtet >> j) & 0x1;
+                const uint8_t a2 = base64_decoded_table[data[i+2]];
 
-                word |= (bit << --off);
+                *out++ = ((a1 & 0xf) << 4) | ((a2 & 0x3c) >> 2);
 
-                if (off == 0)
+                if ((i+3) < data.size() && data[i+3] != '=')
                 {
-                    ret.push_back(word);
-                    off  = 8;
-                    word = 0;
+                    const uint8_t a3 = base64_decoded_table[data[i+3]];
+
+                    *out++ = (a2 & 0x03) << 6 | a3;
                 }
             }
         }
 
+        ret.resize(std::distance(&ret[0], out));
         return ret;
     }
 
