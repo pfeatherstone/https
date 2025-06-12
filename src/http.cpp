@@ -703,40 +703,39 @@ namespace http
     std::string base64_encode(const size_t ndata, const uint8_t* data)
     {
         std::string ret;
-        ret.reserve((ndata+2) / 3 * 4);
-        uint8_t word{0};
-        uint8_t off{6};
+        ret.resize((ndata+2) / 3 * 4);
+        size_t i{0};
+        char*  out{&ret[0]};
 
-        for (size_t i = 0 ; i < ndata ; ++i)
+        while (i < ndata) 
         {
-            const uint8_t byte = data[i];
+            *out++ = base64_encode_table[(data[i+0] & 0xfc) >> 2];
 
-            for (int j = 7 ; j >= 0 ; --j)
+            if (i+1 < ndata) 
             {
-                const uint8_t bit = (byte >> j) & 0x1;
+                *out++ = base64_encode_table[((data[i+0] & 0x03) << 4) + ((data[i + 1] & 0xf0) >> 4)];
 
-                word |= (bit << --off);
-
-                if (off == 0)
+                if (i+2 < ndata) 
                 {
-                    assert(word < 64);
-                    ret.push_back(base64_encode_table[word]);
-                    off  = 6;
-                    word = 0;
+                    *out++ = base64_encode_table[((data[i+1] & 0x0f) << 2) + ((data[i + 2] & 0xc0) >> 6)];
+                    *out++ = base64_encode_table[  data[i+2] & 0x3f];
+                }
+                else 
+                {
+                    *out++ = base64_encode_table[(data[i+1] & 0x0f) << 2];
+                    *out++ = '=';
                 }
             }
+            else 
+            {
+                *out++ = base64_encode_table[(data[i+0] & 0x03) << 4];
+                *out++ = '=';
+                *out++ = '=';
+            }
+
+            i += 3;
         }
 
-        assert(off == 6 || off == 2 || off == 4);
-
-        if (off < 6)
-        {
-            const size_t npadding = off / 2;
-            ret.push_back(base64_encode_table[word]);
-            for (size_t i = 0 ; i < npadding ; ++i)
-                ret.push_back('=');
-        }
-        
         return ret;
     }
 
