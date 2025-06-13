@@ -1,18 +1,24 @@
 #include <string_view>
 #include <vector>
+#include <boost/asio/co_spawn.hpp>
+#include <boost/asio/connect.hpp>
+#include <boost/asio/detached.hpp>
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/ip/basic_resolver.hpp>
 #include <boost/asio/ip/tcp.hpp>
-#include <boost/asio/connect.hpp>
+#include <boost/asio/spawn.hpp>
 #include <http_async.h>
 #include "doctest.h"
 
+using boost::asio::detached;
 using boost::asio::ip::tcp;
 using boost::asio::ip::make_address_v4;
 using tcp_acceptor  = boost::asio::basic_socket_acceptor<tcp, boost::asio::io_context::executor_type>;
 using tcp_socket    = boost::asio::basic_stream_socket<tcp,   boost::asio::io_context::executor_type>;
 using tcp_resolver  = boost::asio::ip::basic_resolver<tcp,    boost::asio::io_context::executor_type>; 
 using tcp_endpoint  = boost::asio::ip::tcp::endpoint;
+using awaitable     = boost::asio::awaitable<void, boost::asio::io_context::executor_type>;
+using yield_context = boost::asio::basic_yield_context<boost::asio::io_context::executor_type>;
 
 TEST_SUITE("[ASYNC]")
 {
@@ -38,36 +44,97 @@ TEST_SUITE("[ASYNC]")
         resp_peer.status = http::ok;
         resp_peer.content_str = "There is only passion";
         
-        try
+        SUBCASE("async")
         {
-            acceptor.async_accept(peer, [&](boost::system::error_code ec) {
-                REQUIRE(!bool(ec));
-                http::async_http_read(peer, req_peer, buf_peer, [&](boost::system::error_code ec, size_t){
+            try
+            {
+                acceptor.async_accept(peer, [&](boost::system::error_code ec) {
                     REQUIRE(!bool(ec));
-                    http::async_http_write(peer, resp_peer, buf_peer, [&](boost::system::error_code ec, size_t){
+                    http::async_http_read(peer, req_peer, buf_peer, [&](boost::system::error_code ec, size_t){
                         REQUIRE(!bool(ec));
-                    });
-                });
-            });
-
-            resolver.async_resolve("localhost", "6666", [&](boost::system::error_code ec, const auto& endpoints) {
-                REQUIRE(!bool(ec));
-                boost::asio::async_connect(client, endpoints, [&](boost::system::error_code ec, auto endpoint) {
-                    REQUIRE(!bool(ec));
-                    http::async_http_write(client, req_client, buf_client, [&](boost::system::error_code ec, size_t) {
-                        REQUIRE(!bool(ec));
-                        http::async_http_read(client, resp_client, buf_client, [&](boost::system::error_code ec, size_t) {
+                        http::async_http_write(peer, resp_peer, buf_peer, [&](boost::system::error_code ec, size_t){
                             REQUIRE(!bool(ec));
                         });
                     });
                 });
-            });
 
-            ioc.run();
+                resolver.async_resolve("localhost", "6666", [&](boost::system::error_code ec, const auto& endpoints) {
+                    REQUIRE(!bool(ec));
+                    boost::asio::async_connect(client, endpoints, [&](boost::system::error_code ec, auto endpoint) {
+                        REQUIRE(!bool(ec));
+                        http::async_http_write(client, req_client, buf_client, [&](boost::system::error_code ec, size_t) {
+                            REQUIRE(!bool(ec));
+                            http::async_http_read(client, resp_client, buf_client, [&](boost::system::error_code ec, size_t) {
+                                REQUIRE(!bool(ec));
+                            });
+                        });
+                    });
+                });
+
+                ioc.run();
+            }
+            catch(const std::exception& e)
+            {
+                exception_thrown = true;
+            }
         }
-        catch(const std::exception& e)
+
+        SUBCASE("awaitable")
         {
-            exception_thrown = true;
+            try
+            {
+                const auto run_server = [&]() -> awaitable
+                {
+                    co_await acceptor.async_accept(peer);
+                    co_await http::async_http_read(peer, req_peer, buf_peer);
+                    co_await http::async_http_write(peer, resp_peer, buf_peer);
+                };
+
+                const auto run_client = [&]() -> awaitable
+                {
+                    const auto endpoints = co_await resolver.async_resolve("localhost", "6666");
+                    co_await boost::asio::async_connect(client, endpoints);
+                    co_await http::async_http_write(client, req_client, buf_client);
+                    co_await http::async_http_read(client, resp_client, buf_client);
+                };
+
+                co_spawn(ioc, run_server(), detached);
+                co_spawn(ioc, run_client(), detached);
+                ioc.run();
+            }
+            catch(const std::exception& e)
+            {
+                exception_thrown = true;
+            }
+        }
+
+        SUBCASE("coro")
+        {
+            try
+            {
+                const auto run_server = [&](yield_context yield)
+                {
+                    acceptor.async_accept(peer, yield);
+                    http::async_http_read(peer, req_peer, buf_peer, yield);
+                    http::async_http_write(peer, resp_peer, buf_peer, yield);
+                };
+
+                const auto run_client = [&](yield_context yield)
+                {
+                    const auto endpoints = resolver.async_resolve("localhost", "6666", yield);
+                    boost::asio::async_connect(client, endpoints, yield);
+                    http::async_http_write(client, req_client, buf_client, yield);
+                    http::async_http_read(client, resp_client, buf_client, yield);
+                };
+
+                boost::asio::spawn(ioc, run_server, detached);
+                boost::asio::spawn(ioc, run_client, detached);
+                ioc.run();
+            }
+            catch(const std::exception& e)
+            {
+                exception_thrown = true;
+            }
         }
 
         REQUIRE(!exception_thrown);
