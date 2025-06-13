@@ -1,3 +1,8 @@
+![Ubuntu-22.04-GCC](https://github.com/pfeatherstone/https/actions/workflows/ci.yml/badge.svg?branch=master&job=Ubuntu-22.04-GCC)
+![Ubuntu-22.04-Clang](https://github.com/pfeatherstone/https/actions/workflows/ci.yml/badge.svg?branch=master&job=Ubuntu-22.04-Clang)
+![Ubuntu-24.04-GCC](https://github.com/pfeatherstone/https/actions/workflows/ci.yml/badge.svg?branch=master&job=Ubuntu-24.04-GCC)
+![Ubuntu-24.04-Clang](https://github.com/pfeatherstone/https/actions/workflows/ci.yml/badge.svg?branch=master&job=Ubuntu-24.04-Clang)
+
 # https
 HTTPS and WSS library.
 This is an experimental replacement for Boost::Beast.
