@@ -1,7 +1,7 @@
-![Ubuntu-22.04-GCC](https://github.com/pfeatherstone/https/actions/workflows/ci.yml/badge.svg?branch=master&job=ubuntu-22-gcc)
-![Ubuntu-22.04-Clang](https://github.com/pfeatherstone/https/actions/workflows/ci.yml/badge.svg?branch=master&job=ubuntu-22-clang)
-![Ubuntu-24.04-GCC](https://github.com/pfeatherstone/https/actions/workflows/ci.yml/badge.svg?branch=master&job=ubuntu-24-gcc)
-![Ubuntu-24.04-Clang](https://github.com/pfeatherstone/https/actions/workflows/ci.yml/badge.svg?branch=master&job=ubuntu-24-clang)
+![Ubuntu-22.04-GCC](https://github.com/pfeatherstone/https/actions/workflows/ci.yml/badge.svg?branch=main&job=ubuntu-22-gcc)
+![Ubuntu-22.04-Clang](https://github.com/pfeatherstone/https/actions/workflows/ci.yml/badge.svg?branch=main&job=ubuntu-22-clang)
+![Ubuntu-24.04-GCC](https://github.com/pfeatherstone/https/actions/workflows/ci.yml/badge.svg?branch=main&job=ubuntu-24-gcc)
+![Ubuntu-24.04-Clang](https://github.com/pfeatherstone/https/actions/workflows/ci.yml/badge.svg?branch=main&job=ubuntu-24-clang)
 
 # https
 HTTPS and WSS library.
