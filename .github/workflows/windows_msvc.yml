@@ -17,7 +17,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install dependencies
-        run: choco install ninja cmake --yes
+        run: choco install ninja cmake openssl --yes
 
       - name: Run CMake configuration and build
         run: |
