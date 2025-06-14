@@ -14,24 +14,6 @@ namespace http
 
 //----------------------------------------------------------------------------------------------------------------
 
-    std::string format(const char* fmt, ...) __attribute__ ((format (printf, 1, 2)));
-
-    std::string format(const char* fmt, ...)
-    {
-        va_list args0, args1;
-        va_start(args0, fmt);
-        va_copy(args1, args0);
-        const int ret = vsnprintf(nullptr, 0, fmt, args0);
-        std::string str(ret+1, '\0');
-        vsnprintf(&str[0], ret+1, fmt, args1);
-        str.resize(ret);
-        va_end(args0);
-        va_end(args1);
-        return str;
-    }
-
-//----------------------------------------------------------------------------------------------------------------
-
     constexpr std::string_view VERBS[] = {
         "UNKNOWN",
         "GET",
@@ -1320,7 +1302,10 @@ namespace http
         }
 
         // Set request line
-        const std::string status_str = format("%s %s HTTP/1.%i\r\n", verb_label(req.verb).data(), uri_encoded.c_str(), (int)req.version);
+        std::string_view verb = verb_label(req.verb);
+        std::string      status_str(verb.size() + uri_encoded.size() + 32, '\0');
+        const int status_len = snprintf(&status_str[0], status_str.size(), "%s %s HTTP/1.%i\r\n", verb.data(), uri_encoded.c_str(), (int)req.version);
+        status_str.resize(status_len);
 
         // Add default connection string if empty
         if (!contains(req.headers, field::connection))
