@@ -8,92 +8,81 @@ on:
     branches:
       - '**'
 
-permissions:
-  checks: write
-  contents: read
-  
-env:
-  CMAKE_VERSION: '3.31.7'
-  CMAKE_INSTALL_DIR: '${{ github.workspace }}/.cmake'
-  CMAKE_BIN: '${{ github.workspace }}/.cmake/bin/cmake'
-  TEST_RESULTS_DIR: '${{ github.workspace }}/test-results'
-
 jobs:
-  build-and-test:
-    strategy:
-      matrix:
-        include:
-          - name: Ubuntu-22.04-GCC
-            os: ubuntu-22.04
-            cc: gcc
-            cxx: g++
-          - name: Ubuntu-22.04-Clang
-            os: ubuntu-22.04
-            cc: clang
-            cxx: clang++
-          - name: Ubuntu-24.04-GCC
-            os: ubuntu-24.04
-            cc: gcc
-            cxx: g++
-          - name: Ubuntu-24.04-Clang
-            os: ubuntu-24.04
-            cc: clang
-            cxx: clang++
-
-    runs-on: ${{ matrix.os }}
-    name: ${{ matrix.name }}
-
+  ubuntu-22-gcc:
+    runs-on: ubuntu-22.04
+    name: Ubuntu-22.04-GCC
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Install dependencies
-        run: |
-          sudo apt update
-          sudo apt install -y ninja-build gcc g++ clang ${{ matrix.extra_packages }}
-
-      - name: Cache CMake
-        uses: actions/cache@v4
-        with:
-          path: ${{ env.CMAKE_INSTALL_DIR }}
-          key: cmake-${{ env.CMAKE_VERSION }}-${{ matrix.os }}-${{ matrix.cc }}-try2
-
-      - name: Download and Install CMake if not cached
-        run: |
-          if [ ! -f "${{ env.CMAKE_BIN }}" ]; then
-            echo "CMake not found in cache. Downloading..."
-            mkdir -p "${{ env.CMAKE_INSTALL_DIR }}"
-            wget -q https://github.com/Kitware/CMake/releases/download/v${{ env.CMAKE_VERSION }}/cmake-${{ env.CMAKE_VERSION }}-linux-x86_64.tar.gz
-            tar -xzf cmake-${{ env.CMAKE_VERSION }}-linux-x86_64.tar.gz --strip-components=1 -C "${{ env.CMAKE_INSTALL_DIR }}"
-          else
-            echo "Using cached CMake"
-          fi
-          "${{ env.CMAKE_BIN }}" --version
+        run: sudo apt update && sudo apt install -y ninja-build gcc g++ cmake
 
       - name: Run CMake configuration and build
         run: |
-          "${{ env.CMAKE_BIN }}" examples -B build -G Ninja \
-            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-            -DCMAKE_C_COMPILER=${{ matrix.cc }} \
-            -DCMAKE_CXX_COMPILER=${{ matrix.cxx }}
-          "${{ env.CMAKE_BIN }}" --build build --parallel
+          cmake examples -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          cmake --build build --parallel
 
       - name: Run Unit Tests
+        run: ./build/tests
+
+  ubuntu-22-clang:
+    runs-on: ubuntu-22.04
+    name: Ubuntu-22.04-Clang
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: sudo apt update && sudo apt install -y ninja-build clang cmake
+
+      - name: Run CMake configuration and build
         run: |
-          mkdir -p "${{ env.TEST_RESULTS_DIR }}"
-          ./build/tests --reporters=junit --out="${{ env.TEST_RESULTS_DIR }}/results.xml"
+          cmake examples -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DCMAKE_C_COMPILER=clang \
+            -DCMAKE_CXX_COMPILER=clang++
+          cmake --build build --parallel
 
-      - name: Render JUnit results in GitHub UI
-        if: always()
-        uses: dorny/test-reporter@v1.6.0
-        with:
-          name: ${{ matrix.name }} Tests
-          path: ${{ env.TEST_RESULTS_DIR }}/results.xml
-          reporter: java-junit
+      - name: Run Unit Tests
+        run: ./build/tests
 
-      - name: Upload Test Results Artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.name }}-test-results
-          path: ${{ env.TEST_RESULTS_DIR }}/results.xml
+  ubuntu-24-gcc:
+    runs-on: ubuntu-24.04
+    name: Ubuntu-24.04-GCC
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: sudo apt update && sudo apt install -y ninja-build gcc g++ cmake
+
+      - name: Run CMake configuration and build
+        run: |
+          cmake examples -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          cmake --build build --parallel
+
+      - name: Run Unit Tests
+        run: ./build/tests
+
+  ubuntu-24-clang:
+    runs-on: ubuntu-24.04
+    name: Ubuntu-24.04-Clang
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: sudo apt update && sudo apt install -y ninja-build clang cmake
+
+      - name: Run CMake configuration and build
+        run: |
+          cmake examples -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DCMAKE_C_COMPILER=clang \
+            -DCMAKE_CXX_COMPILER=clang++
+          cmake --build build --parallel
+
+      - name: Run Unit Tests
+        run: ./build/tests
