@@ -1,0 +1,28 @@
+name: Ubuntu 22 GCC
+
+on:
+  push:
+    branches:
+      - '**'
+  pull_request:
+    branches:
+      - '**'
+
+jobs:
+  ubuntu-22-gcc:
+    runs-on: ubuntu-22.04
+    name: Ubuntu-22.04-GCC
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: sudo apt update && sudo apt install -y ninja-build gcc g++ cmake
+
+      - name: Run CMake configuration and build
+        run: |
+          cmake examples -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          cmake --build build --parallel
+
+      - name: Run Unit Tests
+        run: ./build/tests

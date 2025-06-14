@@ -1,8 +1,8 @@
-![Ubuntu-22.04-GCC](https://img.shields.io/github/actions/workflow/status/pfeatherstone/https/ci.yml?branch=main&job=ubuntu-22-gcc&label=Ubuntu-22.04-GCC)
-![Ubuntu-22.04-Clang](https://img.shields.io/github/actions/workflow/status/pfeatherstone/https/ci.yml?branch=main&job=ubuntu-22-clang&label=Ubuntu-22.04-Clang)
-![Ubuntu-24.04-GCC](https://img.shields.io/github/actions/workflow/status/pfeatherstone/https/ci.yml?branch=main&job=ubuntu-24-gcc&label=Ubuntu-24.04-GCC)
-![Ubuntu-24.04-Clang](https://img.shields.io/github/actions/workflow/status/pfeatherstone/https/ci.yml?branch=main&job=ubuntu-24-clang&label=Ubuntu-24.04-Clang)
-![macOS-Clang](https://img.shields.io/github/actions/workflow/status/pfeatherstone/https/ci.yml?branch=main&job=macos-clang&label=macOS-Clang)
+![Ubuntu 22 GCC](https://github.com/pfeatherstone/https/actions/workflows/ubuntu22_gcc.yml/badge.svg)
+![Ubuntu 22 Clang](https://github.com/pfeatherstone/https/actions/workflows/ubuntu22_clang.yml/badge.svg)
+![Ubuntu 24 GCC](https://github.com/pfeatherstone/https/actions/workflows/ubuntu24_gcc.yml/badge.svg)
+![Ubuntu 24 Clang](https://github.com/pfeatherstone/https/actions/workflows/ubuntu24_clang.yml/badge.svg)
+![macOS Clang](https://github.com/pfeatherstone/https/actions/workflows/macos_clang.yml/badge.svg)
 
 # https
 HTTPS and WSS library.
