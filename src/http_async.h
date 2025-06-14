@@ -912,7 +912,7 @@ namespace http
                     {
                         uint16_t len{0};
                         memcpy(&len, &buf[offset+off], 2);
-                        paylen = be16toh(len);
+                        paylen = host_to_b16(len);
                         off += 2;
                     }
                 
@@ -921,7 +921,7 @@ namespace http
                     {
                         uint64_t len{0};
                         memcpy(&len, &buf[offset+off], 8);
-                        paylen = be64toh(len);
+                        paylen = host_to_b64(len);
                         off += 8;
                     }
 
