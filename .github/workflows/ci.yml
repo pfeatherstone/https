@@ -86,3 +86,22 @@ jobs:
 
       - name: Run Unit Tests
         run: ./build/tests
+  
+  macos-clang:
+    runs-on: macos-latest
+    name: macOS-Clang
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: brew update && brew install ninja cmake
+
+      - name: Run CMake configuration and build
+        run: |
+          cmake examples -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DCMAKE_C_COMPILER=clang \
+            -DCMAKE_CXX_COMPILER=clang++
+          cmake --build build --parallel
+          
+      - name: Run Unit Tests
+        run: ./build/tests
