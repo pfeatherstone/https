@@ -17,11 +17,11 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install dependencies
-        run: choco install ninja cmake openssl --yes
+        run: choco install cmake openssl --yes
 
       - name: Run CMake configuration and build
         run: |
-          cmake examples -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          cmake examples -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo -DOPENSSL_ROOT_DIR="C:/Program Files/OpenSSL-Win64" -DOPENSSL_USE_STATIC_LIBS=TRUE
           cmake --build build --parallel
 
       - name: Run Unit Tests
