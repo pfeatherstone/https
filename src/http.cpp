@@ -539,7 +539,7 @@ namespace http
 
     std::string_view get_mime_type(std::string_view path)
     {
-        const std::string ext2 = fs::path(path).extension();
+        const std::string ext2 = fs::path(path).extension().string();
         for (const auto& [ext1, mime] : MIME_TYPES)
             if (ext1 == ext2)
                 return mime;
