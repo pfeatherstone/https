@@ -3,6 +3,7 @@
 ![Ubuntu 24 GCC](https://github.com/pfeatherstone/https/actions/workflows/ubuntu24_gcc.yml/badge.svg)
 ![Ubuntu 24 Clang](https://github.com/pfeatherstone/https/actions/workflows/ubuntu24_clang.yml/badge.svg)
 ![macOS Clang](https://github.com/pfeatherstone/https/actions/workflows/macos_clang.yml/badge.svg)
+![Windows MSVC](https://github.com/pfeatherstone/https/actions/workflows/windows_msvc.yml/badge.svg)
 
 # https
 HTTPS and WSS library.
