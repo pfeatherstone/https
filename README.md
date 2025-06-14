@@ -1,7 +1,7 @@
 ![Ubuntu-22.04-GCC](https://img.shields.io/github/actions/workflow/status/pfeatherstone/https/ci.yml?branch=main&job=ubuntu-22-gcc&label=Ubuntu-22.04-GCC)
 ![Ubuntu-22.04-Clang](https://img.shields.io/github/actions/workflow/status/pfeatherstone/https/ci.yml?branch=main&job=ubuntu-22-clang&label=Ubuntu-22.04-Clang)
 ![Ubuntu-24.04-GCC](https://img.shields.io/github/actions/workflow/status/pfeatherstone/https/ci.yml?branch=main&job=ubuntu-24-gcc&label=Ubuntu-24.04-GCC)
-![Ubuntu-24.04-Clang](https://img.shields.io/github/actions/workflow/status/pfeatherstone/https/ci.yml?branch=main&job=error&label=Ubuntu-24.04-Clang)
+![Ubuntu-24.04-Clang](https://img.shields.io/github/actions/workflow/status/pfeatherstone/https/ci.yml?branch=main&job=ubuntu-24-clang&label=Ubuntu-24.04-Clang)
 
 # https
 HTTPS and WSS library.
