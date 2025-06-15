@@ -21,8 +21,8 @@ jobs:
 
       - name: Run CMake configuration and build
         run: |
-          cmake examples -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo -DOPENSSL_ROOT_DIR="C:\Program Files\OpenSSL\" -DOPENSSL_USE_STATIC_LIBS=TRUE
-          cmake --build build --parallel
+          cmake examples -B build -DOPENSSL_ROOT_DIR="C:\Program Files\OpenSSL\" -DOPENSSL_USE_STATIC_LIBS=TRUE
+          cmake --build build --config RelWithDebInfo --parallel
 
       - name: Run Unit Tests
-        run: build\tests.exe
+        run: build\RelWithDebInfo\tests.exe
