@@ -102,6 +102,117 @@ TEST_SUITE("[MESSAGE]")
         }
     }
 
+    TEST_CASE("parse bad requests")
+    {
+        {
+            std::string bad_req = "SHUV / HTTP/1.1\r\n";
+            bad_req            += "Host: developer.mozilla.org\r\n";
+            bad_req            += "User-Agent: curl/8.6.0\r\n";
+            bad_req            += "Content-Type: application/json\r\n";
+            bad_req            += "Content-Length: 32\r\n";
+            bad_req            += "\r\n";
+            bad_req            += "{\"name\": \"Obi\", \"creed\": \"Jedi\"}";
+
+            http::request req;
+            std::error_code ec{};
+            bool finished = http::parser<http::request>{}.parse(req, bad_req, ec);
+            REQUIRE(ec == http::http_read_bad_method);
+        }
+        
+        {
+            std::string bad_req = "POST / HTTP/2.1\r\n";
+            bad_req            += "Host: developer.mozilla.org\r\n";
+            bad_req            += "User-Agent: curl/8.6.0\r\n";
+            bad_req            += "Content-Type: application/json\r\n";
+            bad_req            += "Content-Length: 32\r\n";
+            bad_req            += "\r\n";
+            bad_req            += "{\"name\": \"Obi\", \"creed\": \"Jedi\"}";
+
+            http::request req;
+            std::error_code ec{};
+            bool finished = http::parser<http::request>{}.parse(req, bad_req, ec);
+            REQUIRE(ec == http::http_read_unsupported_http_version);
+        }
+
+        {
+            std::string bad_req = "POST / HTTP/11\r\n";
+            bad_req            += "Host: developer.mozilla.org\r\n";
+            bad_req            += "User-Agent: curl/8.6.0\r\n";
+            bad_req            += "Content-Type: application/json\r\n";
+            bad_req            += "Content-Length: 32\r\n";
+            bad_req            += "\r\n";
+            bad_req            += "{\"name\": \"Obi\", \"creed\": \"Jedi\"}";
+
+            http::request req;
+            std::error_code ec{};
+            bool finished = http::parser<http::request>{}.parse(req, bad_req, ec);
+            REQUIRE(ec == http::http_read_unsupported_http_version);
+        }
+
+        {
+            std::string bad_req = "POST / PROTOCOL/1.1\r\n";
+            bad_req            += "Host: developer.mozilla.org\r\n";
+            bad_req            += "User-Agent: curl/8.6.0\r\n";
+            bad_req            += "Content-Type: application/json\r\n";
+            bad_req            += "Content-Length: 32\r\n";
+            bad_req            += "\r\n";
+            bad_req            += "{\"name\": \"Obi\", \"creed\": \"Jedi\"}";
+
+            http::request req;
+            std::error_code ec{};
+            bool finished = http::parser<http::request>{}.parse(req, bad_req, ec);
+            REQUIRE(ec == http::http_read_unsupported_http_version);
+        }
+
+        {
+            std::string bad_req = "POST / HTTP/1.1\r\n";
+            bad_req            += "Host - developer.mozilla.org\r\n";
+            bad_req            += "User-Agent: curl/8.6.0\r\n";
+            bad_req            += "Content-Type: application/json\r\n";
+            bad_req            += "Content-Length: 32\r\n";
+            bad_req            += "\r\n";
+            bad_req            += "{\"name\": \"Obi\", \"creed\": \"Jedi\"}";
+
+            http::request req;
+            std::error_code ec{};
+            bool finished = http::parser<http::request>{}.parse(req, bad_req, ec);
+            REQUIRE(ec == http::http_read_header_kv_delimiter_not_found);
+        }
+
+        {
+            std::string bad_req = "POST / HTTP/1.1\r\n";
+            bad_req            += "Host : developer.mozilla.org\r\n";
+            bad_req            += "User-Agent: curl/8.6.0\r\n";
+            bad_req            += "Content-Type: application/json\r\n";
+            bad_req            += "Content-Length: 32\r\n";
+            bad_req            += "Sith-Code: 66\r\n";
+            bad_req            += "\r\n";
+            bad_req            += "{\"name\": \"Obi\", \"creed\": \"Jedi\"}";
+
+            http::request req;
+            std::error_code ec{};
+            bool finished = http::parser<http::request>{}.parse(req, bad_req, ec);
+            REQUIRE(ec == http::http_read_header_unsupported_field);
+        }
+
+        {
+            std::string bad_req = "POST / HTTP/1.1\r\n";
+            bad_req            += "Host: developer.mozilla.org\r\n";
+            bad_req            += "User-Agent: curl/8.6.0\r\n";
+            bad_req            += "Content-Type: application/json\r\n";
+            bad_req            += "Content-Length: 64\r\n";
+            bad_req            += "\r\n";
+            bad_req            += "{\"name\": \"Obi\", \"creed\": \"Jedi\"}";
+
+            http::request req;
+            std::error_code ec{};
+            bool finished = http::parser<http::request>{}.parse(req, bad_req, ec);
+            REQUIRE(!bool(ec));
+            REQUIRE(!finished);
+            REQUIRE(bad_req.empty());
+        }
+    }
+
     TEST_CASE("serialise bad requests")
     {
         http::request req;

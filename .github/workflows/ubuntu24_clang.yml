@@ -21,10 +21,7 @@ jobs:
 
       - name: Run CMake configuration and build
         run: |
-          cmake examples -B build -G Ninja \
-            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-            -DCMAKE_C_COMPILER=clang \
-            -DCMAKE_CXX_COMPILER=clang++
+          cmake examples -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
           cmake --build build --parallel
 
       - name: Run Unit Tests

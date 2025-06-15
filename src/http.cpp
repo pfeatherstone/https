@@ -1137,6 +1137,7 @@ namespace http
                 // Sufficient
                 if (end != nullptr)
                 {
+                    *end = '\0';
                     const size_t line_length = std::distance(&buf[0], end);
 
                     // Found header
