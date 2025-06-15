@@ -37,7 +37,7 @@ namespace http
         for (unsigned int i = 0 ; i < std::size(VERBS) ; ++i)
             if (VERBS[i] == str)
                 return (verb_type)i;
-        return UNKNOWN_VERB;
+        return METHOD_UNKNOWN;
     }
 
 //----------------------------------------------------------------------------------------------------------------
@@ -883,7 +883,7 @@ namespace http
         headers.clear();
         content.clear();
         version = {};
-        verb = UNKNOWN_VERB;
+        verb = METHOD_UNKNOWN;
     }
 
     void request::add_header(field f, std::string_view value)
@@ -999,7 +999,7 @@ namespace http
                     const verb_type method  = verb_enum(method_str.substr(0, end));
                     
                     // Found
-                    if (method != UNKNOWN_VERB)
+                    if (method != METHOD_UNKNOWN)
                     {
                         if constexpr (std::is_same_v<Message, request>)
                             msg.verb = method;
@@ -1265,7 +1265,7 @@ namespace http
     void serialize_header(request& req, std::string& buf, std::error_code& ec)
     {
         // Check request
-        if (req.verb == UNKNOWN_VERB)
+        if (req.verb == METHOD_UNKNOWN)
         {
             ec = make_error_code(http::http_write_request_bad_verb);
             return;

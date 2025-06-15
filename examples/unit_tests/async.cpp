@@ -36,7 +36,7 @@ TEST_SUITE("[ASYNC]")
         std::string     buf_client;
         std::string     buf_peer;
 
-        req_client.verb   = http::GET;
+        req_client.verb   = http::METHOD_GET;
         req_client.uri    = "/data?name=bane&code=Peace+is+a+lie.+There+is+only+Passion.";
         req_client.add_header(http::host, "hello there!");
         req_client.add_header(http::user_agent, "Boost::asio " + std::to_string(BOOST_ASIO_VERSION)); // optional header
@@ -138,7 +138,7 @@ TEST_SUITE("[ASYNC]")
         }
 
         REQUIRE(!exception_thrown);
-        REQUIRE(req_peer.verb == http::GET);
+        REQUIRE(req_peer.verb == http::METHOD_GET);
         REQUIRE(req_peer.uri == "/data");
         REQUIRE(req_peer.params.size() == 2);
         REQUIRE(req_peer.params[0].key == "name");
@@ -160,5 +160,31 @@ TEST_SUITE("[ASYNC]")
             REQUIRE(resp_peer.headers[i].key   == resp_client.headers[i].key);
             REQUIRE(resp_peer.headers[i].value == resp_client.headers[i].value);
         }
+    }
+
+    TEST_CASE("WEBSOCKET")
+    {
+        boost::asio::io_context ioc{1};
+        tcp_acceptor acceptor(ioc, {tcp::v4(), 6666});
+        tcp_socket   peer(ioc);
+        tcp_socket   client(ioc);
+        tcp_resolver resolver(ioc);
+        bool         exception_thrown{false};
+
+        std::vector<uint8_t> data_peer;
+        std::vector<uint8_t> data_client;
+        std::string          text_peer;
+        std::string          text_client;
+
+        try 
+        {
+
+        }
+        catch(const std::exception& e)
+        {
+            exception_thrown = true;
+        }
+
+        REQUIRE(!exception_thrown);
     }
 }

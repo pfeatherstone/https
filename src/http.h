@@ -22,16 +22,16 @@ namespace http
 
     enum verb_type : unsigned int
     {
-        UNKNOWN_VERB = 0,
-        GET,
-        HEAD,
-        POST,
-        PUT,
-        DELETE,
-        CONNECT,
-        OPTIONS,
-        TRACE,
-        PATCH
+        METHOD_UNKNOWN = 0,
+        METHOD_GET,
+        METHOD_HEAD,
+        METHOD_POST,
+        METHOD_PUT,
+        METHOD_DELETE,
+        METHOD_CONNECT,
+        METHOD_OPTIONS,
+        METHOD_TRACE,
+        METHOD_PATCH
     };
 
 //----------------------------------------------------------------------------------------------------------------
@@ -539,7 +539,7 @@ namespace http
 
     struct request
     {
-        verb_type                   verb{UNKNOWN_VERB};
+        verb_type                   verb{METHOD_UNKNOWN};
         http_version                version{HTTP_1_1};
         std::string                 uri;
         std::vector<query_param>    params;

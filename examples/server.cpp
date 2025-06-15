@@ -79,13 +79,11 @@ struct api_options
         return str;
     }
 
-    constexpr auto split_once(std::string_view str, std::string_view chrs)
+    constexpr auto split_once(std::string_view str, char c)
     {
-        auto pos = str.find(chrs);
-
+        auto pos = str.find(c);
         std::string_view first = str.substr(0, pos);
-        std::string_view second = str.substr(pos+chrs.size());
-
+        std::string_view second = str.substr(pos+1);
         return std::make_pair(first, second);
     }
 
@@ -155,9 +153,9 @@ auto handle_authorization (const http::request& req, std::string_view username_e
     std::string_view  login_base64  = lskip(field->value, "Basic ");
     const auto        login         = http::base64_decode(login_base64);
 
-    const auto [user, passwd] = split_once(std::string_view((const char*)&login[0], login.size()), ":");
+    const auto [user, passwd] = split_once(std::string_view((const char*)&login[0], login.size()), ':');
 
-    if (user.compare(username_exp) != 0 || passwd.compare(passwd_exp) != 0)
+    if (user != username_exp || passwd != passwd_exp)
         return std::make_pair(false, "Authentication username-password don't match expected");
 
     return std::make_pair(true, "Authenticated!");
@@ -173,9 +171,9 @@ void handle_request (
 )
 {
     // Make sure we can handle the method
-    if( req.verb != http::GET  &&
-        req.verb != http::POST &&
-        req.verb != http::PUT)  
+    if( req.verb != http::METHOD_GET  &&
+        req.verb != http::METHOD_POST &&
+        req.verb != http::METHOD_PUT)  
         return http_bad_request(req, resp, "Unknown HTTP-method");
 
     // Check the HTTP request is authorized
@@ -399,7 +397,7 @@ awaitable listen (
     if (options.use_tls)
     {
         printf("Open https://localhost:%hu\n", options.port);
-        ssl = std::make_shared<boost::asio::ssl::context>(boost::asio::ssl::context::tlsv13_server);
+        ssl = std::make_shared<boost::asio::ssl::context>(boost::asio::ssl::context::tlsv12_server);
         ssl->set_options(
             boost::asio::ssl::context::default_workarounds | 
             boost::asio::ssl::context::no_sslv2 |

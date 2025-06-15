@@ -528,7 +528,7 @@ namespace http
                     for (size_t i{0} ; i < 16 ; ++i)
                         nonce[i] = std::rand() % 0xff;
 
-                    req->verb = GET;
+                    req->verb = METHOD_GET;
                     req->uri  = uri;
                     req->add_header(field::host,                  host);
                     req->add_header(field::user_agent,            "Boost::asio " + std::to_string(BOOST_ASIO_VERSION));

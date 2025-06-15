@@ -67,16 +67,16 @@ TEST_SUITE("[MESSAGE]")
 {
     TEST_CASE("enums")
     {
-        REQUIRE(http::verb_enum(http::verb_label(http::UNKNOWN_VERB))   == http::UNKNOWN_VERB);
-        REQUIRE(http::verb_enum(http::verb_label(http::GET))            == http::GET);
-        REQUIRE(http::verb_enum(http::verb_label(http::HEAD))           == http::HEAD);
-        REQUIRE(http::verb_enum(http::verb_label(http::POST))           == http::POST);
-        REQUIRE(http::verb_enum(http::verb_label(http::PUT))            == http::PUT);
-        REQUIRE(http::verb_enum(http::verb_label(http::DELETE))         == http::DELETE);
-        REQUIRE(http::verb_enum(http::verb_label(http::CONNECT))        == http::CONNECT);
-        REQUIRE(http::verb_enum(http::verb_label(http::OPTIONS))        == http::OPTIONS);
-        REQUIRE(http::verb_enum(http::verb_label(http::TRACE))          == http::TRACE);
-        REQUIRE(http::verb_enum(http::verb_label(http::PATCH))          == http::PATCH);
+        REQUIRE(http::verb_enum(http::verb_label(http::METHOD_UNKNOWN)) == http::METHOD_UNKNOWN);
+        REQUIRE(http::verb_enum(http::verb_label(http::METHOD_GET))     == http::METHOD_GET);
+        REQUIRE(http::verb_enum(http::verb_label(http::METHOD_HEAD))    == http::METHOD_HEAD);
+        REQUIRE(http::verb_enum(http::verb_label(http::METHOD_POST))    == http::METHOD_POST);
+        REQUIRE(http::verb_enum(http::verb_label(http::METHOD_PUT))     == http::METHOD_PUT);
+        REQUIRE(http::verb_enum(http::verb_label(http::METHOD_DELETE))  == http::METHOD_DELETE);
+        REQUIRE(http::verb_enum(http::verb_label(http::METHOD_CONNECT)) == http::METHOD_CONNECT);
+        REQUIRE(http::verb_enum(http::verb_label(http::METHOD_OPTIONS)) == http::METHOD_OPTIONS);
+        REQUIRE(http::verb_enum(http::verb_label(http::METHOD_TRACE))   == http::METHOD_TRACE);
+        REQUIRE(http::verb_enum(http::verb_label(http::METHOD_PATCH))   == http::METHOD_PATCH);
 
         for (unsigned int f = http::unknown_field ; f <= http::xref ; ++f)
             REQUIRE(http::field_enum(http::field_label((http::field)f)) == f);
@@ -111,12 +111,12 @@ TEST_SUITE("[MESSAGE]")
 
         SUBCASE("missing uri")
         {
-            req.verb = http::GET;
+            req.verb = http::METHOD_GET;
         }
 
         SUBCASE("missing host")
         {
-            req.verb = http::GET;
+            req.verb = http::METHOD_GET;
             req.uri  = "/index";
         }
 
@@ -139,7 +139,7 @@ TEST_SUITE("[MESSAGE]")
     TEST_CASE("serialize & parse good request")
     {
         http::request req0;
-        req0.verb = http::GET;
+        req0.verb = http::METHOD_GET;
         req0.uri  = "/path/to/resource/with+spaces";
         req0.add_header(http::host,                     "www.example.com:8080");
         req0.add_header(http::user_agent,               "CustomTestAgent/7.4.2 (compatible; FancyBot/1.0; +https://example.com/bot)");
