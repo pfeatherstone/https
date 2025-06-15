@@ -201,7 +201,7 @@ void handle_request (
 
     // Build the path to the requested file
     const fs::path      uri  = req.uri == "/" ? "index.html" : req.uri;
-    const std::string   path = fs::path(doc_root) / (uri.has_root_directory() ? uri.relative_path() : uri);
+    const std::string   path = (fs::path(doc_root) / (uri.has_root_directory() ? uri.relative_path() : uri)).string();
 
     // Attempt to open the file
     http::file_ptr file(fopen(path.c_str(), "r"));

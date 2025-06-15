@@ -46,7 +46,7 @@ TEST_SUITE("[BASE64]")
     TEST_CASE("matches openssl")
     {
         std::mt19937 eng(std::random_device{}());
-        std::uniform_int_distribution<uint8_t> d{};
+        std::uniform_int_distribution<unsigned int> d{0,255};
         std::vector<uint8_t> buf;
         buf.reserve(4096);
 
@@ -54,7 +54,7 @@ TEST_SUITE("[BASE64]")
         {
             // Fill with random
             buf.resize(i);
-            std::generate(begin(buf), end(buf), [&]{return d(eng);});
+            std::generate(begin(buf), end(buf), [&]{return static_cast<uint8_t>(d(eng));});
 
             // Encode
             auto encoded_ssl    = openssl_base64_encode(buf.size(), buf.data());
