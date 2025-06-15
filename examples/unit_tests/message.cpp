@@ -192,7 +192,7 @@ TEST_SUITE("[MESSAGE]")
             http::request req;
             std::error_code ec{};
             bool finished = http::parser<http::request>{}.parse(req, bad_req, ec);
-            REQUIRE(ec == http::http_read_header_unsupported_field);
+            REQUIRE(ec == http::http_read_header_unsupported_field); // (It should be "Host:" not "Host :")
         }
 
         {
@@ -208,8 +208,174 @@ TEST_SUITE("[MESSAGE]")
             std::error_code ec{};
             bool finished = http::parser<http::request>{}.parse(req, bad_req, ec);
             REQUIRE(!bool(ec));
-            REQUIRE(!finished);
+            REQUIRE(!finished); // Incorrect Content-Length
             REQUIRE(bad_req.empty());
+        }
+
+        {
+            std::string bad_req = "POST / HTTP/1.1\r\n";
+            bad_req            += "Host: developer.mozilla.org\r\n";
+            bad_req            += "User-Agent: curl/8.6.0\r\n";
+            bad_req            += "Content-Type: application/json\r\n";
+            bad_req            += "Content-Length: 32\r\n";
+            bad_req            += "{\"name\": \"Obi\", \"creed\": \"Jedi\"}";
+
+            http::request req;
+            std::error_code ec{};
+            bool finished = http::parser<http::request>{}.parse(req, bad_req, ec);
+            REQUIRE(!bool(ec));
+            REQUIRE(!finished); // Waiting for \r\n to test header
+        }
+
+
+        {
+            std::string bad_req = "POST / HTTP/1.1\r\n";
+            bad_req            += "Host: developer.mozilla.org\r\n";
+            bad_req            += "User-Agent: curl/8.6.0\r\n";
+            bad_req            += "Content-Type: application/json\r\n";
+            bad_req            += "Content-Length: 32\r\n";
+            bad_req            += "\r\n";
+            bad_req            += "{\"name\": \"Obi\", \"creed\": \"Jedi\"}";
+
+            http::request req;
+            std::error_code ec{};
+            bool finished = http::parser<http::request>{}.parse(req, bad_req, ec);
+            REQUIRE(!bool(ec));
+            REQUIRE(finished); // Done
+            REQUIRE(bad_req.empty());
+        }
+    }
+
+    TEST_CASE("parse bad response")
+    {
+        {
+            std::string bad_reply    = "HTTP/2.1 200 ok\r\n";
+            bad_reply               += "Server: Apache\r\n";
+            bad_reply               += "Content-Type: text\r\n";
+            bad_reply               += "Content-Length: 11\r\n";
+            bad_reply               += "\r\n";
+            bad_reply               += "hello there";
+
+            http::response reply;
+            std::error_code ec{};
+            bool finished = http::parser<http::response>{}.parse(reply, bad_reply, ec);
+            REQUIRE(ec == http::http_read_unsupported_http_version);
+        }
+
+        {
+            std::string bad_reply    = "HTTP/11 200 ok\r\n";
+            bad_reply               += "Server: Apache\r\n";
+            bad_reply               += "Content-Type: text\r\n";
+            bad_reply               += "Content-Length: 11\r\n";
+            bad_reply               += "\r\n";
+            bad_reply               += "hello there";
+
+            http::response reply;
+            std::error_code ec{};
+            bool finished = http::parser<http::response>{}.parse(reply, bad_reply, ec);
+            REQUIRE(ec == http::http_read_unsupported_http_version);
+        }
+
+        {
+            std::string bad_reply    = "HTT/1.1 200 ok\r\n";
+            bad_reply               += "Server: Apache\r\n";
+            bad_reply               += "Content-Type: text\r\n";
+            bad_reply               += "Content-Length: 11\r\n";
+            bad_reply               += "\r\n";
+            bad_reply               += "hello there";
+
+            http::response reply;
+            std::error_code ec{};
+            bool finished = http::parser<http::response>{}.parse(reply, bad_reply, ec);
+            REQUIRE(ec == http::http_read_unsupported_http_version);
+        }
+
+        {
+            std::string bad_reply    = "HTTP/1.1 99 teapot\r\n";
+            bad_reply               += "Server: Apache\r\n";
+            bad_reply               += "Content-Type: text\r\n";
+            bad_reply               += "Content-Length: 11\r\n";
+            bad_reply               += "\r\n";
+            bad_reply               += "hello there";
+
+            http::response reply;
+            std::error_code ec{};
+            bool finished = http::parser<http::response>{}.parse(reply, bad_reply, ec);
+            REQUIRE(ec == http::http_read_bad_status);
+        }
+
+        {
+            std::string bad_reply    = "HTTP/1.1 200 ok\r\n";
+            bad_reply               += "Server: Apache\r\n";
+            bad_reply               += "Content-Type- text\r\n";
+            bad_reply               += "Content-Length: 11\r\n";
+            bad_reply               += "\r\n";
+            bad_reply               += "hello there";
+
+            http::response reply;
+            std::error_code ec{};
+            bool finished = http::parser<http::response>{}.parse(reply, bad_reply, ec);
+            REQUIRE(ec == http::http_read_header_kv_delimiter_not_found);
+        }
+
+        {
+            std::string bad_reply    = "HTTP/1.1 200 ok\r\n";
+            bad_reply               += "Server: Apache\r\n";
+            bad_reply               += "Content-Type : text\r\n";
+            bad_reply               += "Content-Length: 11\r\n";
+            bad_reply               += "\r\n";
+            bad_reply               += "hello there";
+
+            http::response reply;
+            std::error_code ec{};
+            bool finished = http::parser<http::response>{}.parse(reply, bad_reply, ec);
+            REQUIRE(ec == http::http_read_header_unsupported_field);
+        }
+
+        {
+            std::string bad_reply    = "HTTP/1.1 200 ok\r\n";
+            bad_reply               += "Server: Apache\r\n";
+            bad_reply               += "Content-Flavour: text\r\n";
+            bad_reply               += "Content-Length: 11\r\n";
+            bad_reply               += "\r\n";
+            bad_reply               += "hello there";
+
+            http::response reply;
+            std::error_code ec{};
+            bool finished = http::parser<http::response>{}.parse(reply, bad_reply, ec);
+            REQUIRE(ec == http::http_read_header_unsupported_field);
+        }
+
+        {
+            std::string bad_reply    = "HTTP/1.1 200 ok\r\n";
+            bad_reply               += "Server: Apache\r\n";
+            bad_reply               += "Content-Type: text\r\n";
+            bad_reply               += "Content-Length: 32\r\n";
+            bad_reply               += "\r\n";
+            bad_reply               += "hello there";
+
+            http::response reply;
+            std::error_code ec{};
+            bool finished = http::parser<http::response>{}.parse(reply, bad_reply, ec);
+            REQUIRE(!bool(ec));
+            REQUIRE(!finished); // Wrong content length. Waiting for rest of payload
+            REQUIRE(bad_reply.empty());
+        }
+
+        {
+            std::string good_reply    = "HTTP/1.1 200 ok\r\n";
+            good_reply               += "Server: Apache\r\n";
+            good_reply               += "Content-Type: text\r\n";
+            good_reply               += "Content-Length: 11\r\n";
+            good_reply               += "\r\n";
+            good_reply               += "hello there";
+
+            http::response reply;
+            std::error_code ec{};
+            bool finished = http::parser<http::response>{}.parse(reply, good_reply, ec);
+            REQUIRE(!bool(ec));
+            REQUIRE(finished); // Good
+            REQUIRE(good_reply.empty());
         }
     }
 
