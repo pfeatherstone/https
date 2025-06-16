@@ -1,5 +1,6 @@
 #include <string_view>
 #include <vector>
+#include <random>
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/connect.hpp>
 #include <boost/asio/detached.hpp>
@@ -165,24 +166,85 @@ TEST_SUITE("[ASYNC]")
     TEST_CASE("WEBSOCKET")
     {
         boost::asio::io_context ioc{1};
-        tcp_acceptor acceptor(ioc, {tcp::v4(), 6666});
+        tcp_acceptor acceptor(ioc, {tcp::v4(), 6667});
         tcp_socket   peer(ioc);
         tcp_socket   client(ioc);
         tcp_resolver resolver(ioc);
         bool         exception_thrown{false};
 
-        std::vector<uint8_t> data_peer;
-        std::vector<uint8_t> data_client;
-        std::string          text_peer;
-        std::string          text_client;
+        http::request     req;
+        std::string       buf;
+        std::vector<char> data;
+        std::string       text;
+        std::vector<char> data_peer;
+        std::vector<char> data_client;
 
-        try 
-        {
+        std::mt19937 eng(std::random_device{}());
+        std::uniform_int_distribution<unsigned int> d{0, 255};
+        data.resize(1024);
+        std::generate(begin(data), end(data), [&]{return static_cast<char>(d(eng));});
+        text  = "Peace is a lie. There is only passion.";
+        text += "Through passion, I gain strength.";
+        text += "Through strength, I gain power.";
+        text += "Through power, I gain victory.";
 
-        }
-        catch(const std::exception& e)
+        SUBCASE("async - client sends")
         {
-            exception_thrown = true;
+            try 
+            {
+                acceptor.async_accept(peer, [&](boost::system::error_code ec) {
+                    REQUIRE(!bool(ec));
+                    http::async_http_read(peer, req, buf, [&](boost::system::error_code ec, size_t){
+                        REQUIRE(!bool(ec));
+                        REQUIRE(req.is_websocket_req());
+                        http::async_ws_accept(peer, req, [&](boost::system::error_code ec, std::size_t) {
+                            REQUIRE(!bool(ec));
+                            http::async_ws_read(peer, data_peer, true, [&](boost::system::error_code ec, bool is_text) {
+                                REQUIRE(!bool(ec));
+                                REQUIRE(!is_text);
+                                REQUIRE(data_peer.size() == data.size());
+                                REQUIRE(std::equal(begin(data_peer), end(data_peer), begin(data)));
+                                http::async_ws_read(peer, data_peer, true, [&](boost::system::error_code ec, bool is_text) {
+                                    REQUIRE(!bool(ec));
+                                    REQUIRE(is_text);
+                                    REQUIRE(data_peer.size() == text.size());
+                                    REQUIRE(std::equal(begin(data_peer), end(data_peer), begin(text)));
+                                    http::async_ws_read(peer, data_peer, true, [&](boost::system::error_code ec, bool is_text) {
+                                        REQUIRE(ec == http::ws_going_away);
+                                    });
+                                });
+                            });
+                        });
+                    });
+                });
+
+                resolver.async_resolve("localhost", "6667", [&](boost::system::error_code ec, const auto& endpoints) {
+                    REQUIRE(!bool(ec));
+                    boost::asio::async_connect(client, endpoints, [&](boost::system::error_code ec, auto endpoint) {
+                        REQUIRE(!bool(ec));
+                        http::async_ws_handshake(client, "localhost", "/ws", [&](boost::system::error_code ec) {
+                            REQUIRE(!bool(ec));
+                            data_client.assign(begin(data), end(data));
+                            http::async_ws_write(client, data_client, false, false, [&](boost::system::error_code ec, std::size_t) {
+                                REQUIRE(!bool(ec));
+                                data_client.assign(begin(text), end(text));
+                                http::async_ws_write(client, data_client, true, false, [&](boost::system::error_code ec, std::size_t) {
+                                    REQUIRE(!bool(ec));
+                                    http::async_ws_close(client, http::ws_going_away, false, [&](boost::system::error_code ec) {
+                                        REQUIRE(!bool(ec));
+                                    });
+                                });
+                            });
+                        });
+                    });
+                });
+
+                ioc.run();
+            }
+            catch(const std::exception& e)
+            {
+                exception_thrown = true;
+            }
         }
 
         REQUIRE(!exception_thrown);
