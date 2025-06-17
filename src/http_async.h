@@ -505,8 +505,8 @@ namespace http
 
             async_ws_handshake_impl (
                 AsyncStream&        sock_, 
-                std::string_view    uri_, 
-                std::string_view    host_
+                std::string_view    host_, 
+                std::string_view    uri_
             ) : sock{sock_}, 
                 uri{uri_},
                 host{host_}

@@ -344,6 +344,67 @@ TEST_SUITE("[ASYNC]")
             }
         }
 
+        SUBCASE("async - server sends")
+        {
+            try 
+            {
+                acceptor.async_accept(peer, [&](boost::system::error_code ec) {
+                    REQUIRE(!bool(ec));
+                    http::async_http_read(peer, req, buf, [&](boost::system::error_code ec, size_t) {
+                        REQUIRE(!bool(ec));
+                        REQUIRE(req.is_websocket_req());
+                        http::async_ws_accept(peer, req, [&](boost::system::error_code ec, std::size_t) {
+                            REQUIRE(!bool(ec));
+                            data_peer.assign(begin(data), end(data));
+                            http::async_ws_write(peer, data_peer, false, true, [&](boost::system::error_code ec, std::size_t nwritten) {
+                                REQUIRE(!bool(ec));
+                                printf("Written %zu bytes\n", nwritten);
+                                data_peer.assign(begin(text), end(text));
+                                http::async_ws_write(peer, data_peer, true, true, [&](boost::system::error_code ec, std::size_t) {
+                                    REQUIRE(!bool(ec));
+                                    http::async_ws_close(peer, http::ws_going_away, true, [&](boost::system::error_code ec) {
+                                        REQUIRE(!bool(ec));
+                                    });
+                                });
+                            });
+                        });
+                    });
+                });
+
+                resolver.async_resolve("localhost", "6667", [&](boost::system::error_code ec, const auto& endpoints) {
+                    REQUIRE(!bool(ec));
+                    boost::asio::async_connect(client, endpoints, [&](boost::system::error_code ec, auto endpoint) {
+                        REQUIRE(!bool(ec));
+                        http::async_ws_handshake(client, "localhost", "/ws", [&](boost::system::error_code ec) {
+                            REQUIRE(!bool(ec));
+                            http::async_ws_read(client, data_client, false, [&](boost::system::error_code ec, bool is_text) {
+                                printf("%s\n", ec.message().c_str());
+                                REQUIRE(!bool(ec));
+                                REQUIRE(!is_text);
+                                REQUIRE(data_client.size() == data.size());
+                                REQUIRE(std::equal(begin(data_client), end(data_client), begin(data)));
+                                http::async_ws_read(client, data_client, false, [&](boost::system::error_code ec, bool is_text) {
+                                    REQUIRE(!bool(ec));
+                                    REQUIRE(is_text);
+                                    REQUIRE(data_client.size() == text.size());
+                                    REQUIRE(std::equal(begin(data_client), end(data_client), begin(text)));
+                                    http::async_ws_read(client, data_client, false, [&](boost::system::error_code ec, bool is_text) {
+                                        REQUIRE(ec == http::ws_going_away);
+                                    });
+                                });
+                            });
+                        });
+                    });
+                });
+
+                ioc.run();
+            }
+            catch(const std::exception& e)
+            {
+                exception_thrown = true;
+            }
+        }
+
         REQUIRE(!exception_thrown);
     }
 }
