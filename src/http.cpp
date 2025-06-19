@@ -11,6 +11,63 @@ namespace fs = std::filesystem;
 
 namespace http
 {
+    
+//----------------------------------------------------------------------------------------------------------------
+
+    constexpr uint16_t byte_swap16(uint16_t v)
+    {
+        return static_cast<uint16_t>(((v & 0x00FF) << 8) | ((v & 0xFF00) >> 8));
+    }
+
+    constexpr uint32_t byte_swap32(uint32_t v)
+    {
+        return static_cast<uint32_t>(((v & 0x000000FF) << 24) |
+                                    ((v & 0x0000FF00) << 8)  |
+                                    ((v & 0x00FF0000) >> 8)  |
+                                    ((v & 0xFF000000) >> 24));
+    }
+
+    constexpr uint64_t byte_swap64(uint64_t v)
+    {
+        return static_cast<uint64_t>(((v & 0x00000000000000FFULL) << 56) |
+                                    ((v & 0x000000000000FF00ULL) << 40) |
+                                    ((v & 0x0000000000FF0000ULL) << 24) |
+                                    ((v & 0x00000000FF000000ULL) << 8)  |
+                                    ((v & 0x000000FF00000000ULL) >> 8)  |
+                                    ((v & 0x0000FF0000000000ULL) >> 24) |
+                                    ((v & 0x00FF000000000000ULL) >> 40) |
+                                    ((v & 0xFF00000000000000ULL) >> 56));
+    }
+
+    static_assert(byte_swap16(0x1234)               == 0x3412,              "bad swap");
+    static_assert(byte_swap32(0x12345678)           == 0x78563412,          "bad swap");
+    static_assert(byte_swap64(0x123456789abcdef1)   == 0xf1debc9a78563412,  "bad swap");
+
+//----------------------------------------------------------------------------------------------------------------
+
+    inline bool is_little_endian() 
+    {
+        constexpr uint32_t v{0x01020304};
+        const auto*        ptr{reinterpret_cast<const unsigned char*>(&v)};
+        return ptr[0] == 0x04;
+    }
+
+//----------------------------------------------------------------------------------------------------------------
+
+    inline uint16_t host_to_b16(uint16_t v)
+    {
+        return is_little_endian() ? byte_swap16(v) : v;
+    }
+
+    inline uint32_t host_to_b32(uint32_t v)
+    {
+        return is_little_endian() ? byte_swap32(v) : v;
+    }
+
+    inline uint64_t host_to_b64(uint64_t v)
+    {
+        return is_little_endian() ? byte_swap64(v) : v;
+    }
 
 //----------------------------------------------------------------------------------------------------------------
 
@@ -960,22 +1017,6 @@ namespace http
 //----------------------------------------------------------------------------------------------------------------
 
     template<class Message>
-    parser<Message>::parser()
-    {
-        reset();   
-    }
-
-    template<class Message>
-    void parser<Message>::reset()
-    {
-        if constexpr (std::is_same_v<Message, request>)
-            state = method;
-        else
-            state = version;
-        body_read = 0;
-    }
-
-    template<class Message>
     bool parser<Message>::parse(Message& msg, std::string& buf, std::error_code& ec)
     {
         using namespace details;
@@ -1362,6 +1403,238 @@ namespace http
 
 //----------------------------------------------------------------------------------------------------------------
 
+    bool websocket_parser::parse(std::vector<char>& msg, std::string& buf, std::error_code& ec)
+    {
+        while (!buf.empty() && !ec && state != done)
+        {
+            if (state == header_frame)
+            {
+                // Sufficient data
+                if (buf.size() >= sizeof(websocket_frame))
+                {
+                    // Read header
+                    websocket_frame hdr{};
+                    memcpy(&hdr, &buf[0], sizeof(websocket_frame));
+                    buf.erase(begin(buf), begin(buf) + sizeof(websocket_frame));
+
+                    const bool opcode_valid = 
+                        hdr.opcode == (unsigned char)WS_OPCODE_CONTINUATION || 
+                        hdr.opcode == (unsigned char)WS_OPCODE_DATA_TEXT    || 
+                        hdr.opcode == (unsigned char)WS_OPCODE_DATA_BINARY  ||
+                        hdr.opcode == (unsigned char)WS_OPCODE_CLOSE        ||
+                        hdr.opcode == (unsigned char)WS_OPCODE_PING         ||
+                        hdr.opcode == (unsigned char)WS_OPCODE_PONG;
+
+                    if (!opcode_valid)
+                    {
+                        ec = http::ws_read_bad_opcode;
+                        break;
+                    }
+
+                    const bool rsv_valid = 
+                        hdr.rsv1 == 0 && 
+                        hdr.rsv2 == 0 && 
+                        hdr.rsv3 == 0;
+                    
+                    if (!rsv_valid)
+                    {
+                        ec = http::ws_read_bad_rsv;
+                        break;
+                    }
+
+                    // Update state
+                    is_masked = hdr.masked;
+                    is_last   = hdr.fin;
+                    paylen    = hdr.paylen;
+                    if (hdr.opcode > 0)
+                        opcode = (websocket_opcode)hdr.opcode;
+                    
+                    // Calculate size of next header bit
+                    hdr_extra_size = 0;
+                    if (paylen == 126)
+                        hdr_extra_size = 2;
+                    else if (paylen == 127)
+                        hdr_extra_size = 8;
+                    if (is_masked)
+                        hdr_extra_size += 4;
+                    
+                    if (hdr_extra_size > 0)
+                        state = header_extra;
+                    else
+                        state = body;
+                }
+
+                // Insufficient
+                else
+                    break;
+            }
+
+            else if (state == header_extra)
+            {
+                // Sufficient
+                if (buf.size() >= hdr_extra_size)
+                {
+                    size_t off{0};
+
+                    // Read 16-bit paylen
+                    if (paylen == 126)
+                    {
+                        uint16_t len{0};
+                        memcpy(&len, &buf[off], 2);
+                        paylen = host_to_b16(len);
+                        off += 2;
+                    }
+                
+                    // Read 64-bit paylen
+                    else if (paylen == 127)
+                    {
+                        uint64_t len{0};
+                        memcpy(&len, &buf[off], 8);
+                        paylen = host_to_b64(len);
+                        off += 8;
+                    }
+
+                    // Read mask
+                    if (is_masked)
+                    {
+                        memcpy(mask_key, &buf[off], 4);
+                        off += 4;
+                    }
+
+                    assert(off == hdr_extra_size);
+                    buf.erase(begin(buf), begin(buf) + off);
+                    state = body;
+                }
+
+                // Insufficient
+                else
+                    break;
+            }
+
+            else if (state == body)
+            {
+                // Sufficient
+                if (buf.size() >= paylen)
+                {
+                    // Un-mask if necessary
+                    if (is_masked)
+                    {
+                        for (size_t i = 0 ; i < paylen ; ++i)
+                            buf[i] ^= mask_key[i%4];
+                    }
+
+                    // Add to message
+                    msg.insert(end(msg), begin(buf), begin(buf) + paylen);
+                    buf.erase(begin(buf), begin(buf) + paylen);
+                    state = is_last ? done : header_frame;
+                }
+
+                // Insufficient
+                else
+                    break;
+            }
+        }
+
+        return state == done;
+    }
+
+    websocket_opcode websocket_parser::get_opcode() const
+    {
+        return opcode;
+    }
+
+    bool websocket_parser::is_server() const
+    {
+        return !is_masked;
+    }
+
+//----------------------------------------------------------------------------------------------------------------
+
+    void serialize_websocket_message(const std::vector<char>& msg, websocket_opcode opcode, bool do_mask, std::string& buf)
+    {
+        // Header
+        websocket_frame hdr{};
+        memset(&hdr, 0, sizeof(websocket_frame));
+        size_t hdr_len = sizeof(websocket_frame);
+        hdr.fin     = 1;
+        hdr.masked  = do_mask;
+        hdr.opcode  = opcode;
+
+        // Header 
+        if (msg.size() < 126)
+        {
+            hdr.paylen = msg.size();
+        }     
+        else if (msg.size() <= 65535)
+        {
+            hdr.paylen = 126;
+            hdr_len += 2;
+        }
+        else
+        {
+            hdr.paylen = 127;
+            hdr_len += 8;
+        }
+
+        if (do_mask)
+        {
+            hdr_len += 4;
+        }
+
+        // Initialize buffer
+        buf.resize(hdr_len + msg.size());
+        
+        // Add header
+        size_t off{0};
+        memcpy(&buf[off], &hdr, sizeof(websocket_frame));
+        off += sizeof(websocket_frame);
+
+        if (hdr.paylen == 126)
+        {
+            uint16_t len = host_to_b16((uint16_t)msg.size());
+            memcpy(&buf[off], &len, 2);
+            off += 2;
+        }
+
+        else if (hdr.paylen == 127)
+        {
+            uint64_t len = host_to_b64((uint64_t)msg.size());
+            memcpy(&buf[off], &len, 8);
+            off += 8;
+        }
+
+        uint8_t mask_key[4];
+
+        if (do_mask)
+        {
+            // Create mask key
+            mask_key[0] = std::rand() % 0xff;
+            mask_key[1] = std::rand() % 0xff;
+            mask_key[2] = std::rand() % 0xff;
+            mask_key[3] = std::rand() % 0xff;
+
+            // Write mask key
+            memcpy(&buf[off], mask_key, 4);
+            off += 4;
+        }
+
+        assert(off == hdr_len);
+
+        // Add data
+        if (do_mask)
+        {
+            for (size_t i = 0 ; i < msg.size() ; ++i)
+                buf[hdr_len+i] = msg[i] ^ mask_key[i%4];
+        }
+        else
+        {
+            for (size_t i = 0 ; i < msg.size() ; ++i)
+                buf[hdr_len+i] = msg[i];
+        }
+    }
+
+//----------------------------------------------------------------------------------------------------------------
+
     struct http_error_category : std::error_category
     {
         const char* name() const noexcept override 
@@ -1389,9 +1662,11 @@ namespace http
             case ws_handshake_missing_seq_accept:           return "Missing seq-websocket-accept in HTTP websocket switching response message";
             case ws_handshake_bad_sec_accept:               return "Bad sec-websocket-accept in HTTP websocket switching response message";
             case ws_accept_missing_seq_key:                 return "Missing seq-websocket-key in HTTP websocket upgrade request message";
-            case ws_invalid_opcode:                         return "Received invalid opcode";
+            case ws_read_bad_opcode:                        return "websocket_frame invalid opcode";
+            case ws_read_bad_rsv:                           return "websocket_frame invalid rsv bits";
             case ws_closing_handshake_non_matching_opcode:  return "Did not receive a CLOSE frame in closing handshake";
             case ws_closing_handshake_non_matching_reason:  return "The CLOSE frame does not have matching status code (reason) as the endpoint who sent the original";
+            case ws_invalid_opcode:                         return "Received invalid opcode";
             default:                                        return "Unrecognised error";
             }
         }

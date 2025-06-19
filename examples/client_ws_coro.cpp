@@ -25,6 +25,8 @@ using boost::asio::ip::tcp;
 using boost::asio::make_strand;
 using tcp_socket            = boost::asio::basic_stream_socket<tcp, boost::asio::strand<boost::asio::io_context::executor_type>>;
 using tls_socket            = boost::asio::ssl::stream<tcp_socket>;
+using http_socket           = http::stream<tcp_socket>;
+using https_socket          = http::stream<tls_socket>;
 using yield_context_strand  = boost::asio::basic_yield_context<boost::asio::strand<boost::asio::io_context::executor_type>>;
 using namespace std::chrono_literals;
 
@@ -35,14 +37,13 @@ using namespace std::chrono_literals;
 //----------------------------------------------------------------------------------------------------------------
 
 template<class Sock>
-void read_write_one(Sock& sock, std::string_view host, std::vector<char>& buf, yield_context_strand yield)
+void read_write_one(Sock& sock, std::string_view host, std::vector<char>& msg, yield_context_strand yield)
 {
-    constexpr bool is_server{false};
     constexpr bool is_text{false};
     http::async_ws_handshake(sock, host, "/ws", yield);
-    http::async_ws_write(sock, buf, is_text, is_server, yield);
-    http::async_ws_read(sock, buf, is_server, yield);
-    http::async_ws_close(sock, http::ws_going_away, is_server, yield);
+    http::async_ws_write(sock, msg, is_text, yield);
+    http::async_ws_read(sock, msg, yield);
+    http::async_ws_close(sock, http::ws_going_away, yield);
 }
 
 void ws_session(std::string_view host, uint16_t port, std::string_view msg, yield_context_strand yield)
@@ -50,12 +51,12 @@ void ws_session(std::string_view host, uint16_t port, std::string_view msg, yiel
     try
     {
         // Objects
-        tcp_socket        sock(yield.get_executor());
+        http_socket       sock(tcp_socket(yield.get_executor()), false);
         tcp::resolver     resolver(sock.get_executor());
         std::vector<char> buf(begin(msg), end(msg));
 
         // Async IO
-        boost::asio::async_connect(sock, resolver.async_resolve(host, std::to_string(port), yield), boost::asio::cancel_after(5s, yield));
+        boost::asio::async_connect(sock.lowest_layer(), resolver.async_resolve(host, std::to_string(port), yield), boost::asio::cancel_after(5s, yield));
         read_write_one(sock, host, buf, yield);
 
         // Print echo
@@ -77,15 +78,15 @@ void ws_ssl_session(std::string_view host, uint16_t port, std::string_view msg, 
         ssl.set_verify_callback([](bool preverified, boost::asio::ssl::verify_context& ctx) {return true;});
         ssl.set_verify_mode(boost::asio::ssl::verify_peer);
 
-        tls_socket        sock(tcp_socket(yield.get_executor()), ssl);
+        https_socket      sock(tls_socket(yield.get_executor(), ssl), false);
         tcp::resolver     resolver(sock.get_executor());
         std::vector<char> buf(begin(msg), end(msg));
 
         // Async IO
-        boost::asio::async_connect(sock.next_layer(), resolver.async_resolve(host, std::to_string(port), yield), boost::asio::cancel_after(5s, yield));
-        sock.async_handshake(boost::asio::ssl::stream_base::client, yield);
+        boost::asio::async_connect(sock.lowest_layer(), resolver.async_resolve(host, std::to_string(port), yield), boost::asio::cancel_after(5s, yield));
+        sock.next_layer().async_handshake(boost::asio::ssl::stream_base::client, yield);
         read_write_one(sock, host, buf, yield);
-        sock.async_shutdown(yield);
+        sock.next_layer().async_shutdown(yield);
 
         // Print echo
         printf("TLS server echoed back\n\"%.*s\"\n", (int)buf.size(), buf.data());

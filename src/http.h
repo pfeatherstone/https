@@ -581,12 +581,10 @@ namespace http
     {
     private:
         static constexpr std::size_t max_header_size = 8192;
-        enum {method, uri, version, status_code, status_msg, header_line, body, done} state;
+        enum {method, uri, version, status_code, status_msg, header_line, body, done} state{std::is_same_v<Message, request> ? method : version};
         size_t body_read{0};
 
     public:
-        parser();
-        void reset();
         bool parse(Message& req, std::string& buf, std::error_code& ec);
     };
 
@@ -594,6 +592,56 @@ namespace http
 
     void serialize_header(request& req, std::string& buf, std::error_code& ec);
     void serialize_header(response& resp, std::string& buf, std::error_code& ec);
+
+//----------------------------------------------------------------------------------------------------------------
+
+    enum websocket_opcode : int
+    {
+        WS_OPCODE_CONTINUATION  = 0,
+        WS_OPCODE_DATA_TEXT     = 1,
+        WS_OPCODE_DATA_BINARY   = 2,
+        WS_OPCODE_CLOSE         = 8,
+        WS_OPCODE_PING          = 9,
+        WS_OPCODE_PONG          = 10
+    };
+
+//----------------------------------------------------------------------------------------------------------------
+
+    struct websocket_frame
+    {
+        unsigned char opcode : 4;
+        unsigned char rsv3   : 1;
+        unsigned char rsv2   : 1;
+        unsigned char rsv1   : 1;
+        unsigned char fin    : 1;
+        unsigned char paylen : 7;
+        unsigned char masked : 1;
+    };
+
+    static_assert(sizeof(websocket_frame) == 2, "bad");
+
+//----------------------------------------------------------------------------------------------------------------
+
+    class websocket_parser
+    {
+    private:
+        websocket_opcode    opcode{WS_OPCODE_CONTINUATION};
+        bool                is_masked{false};
+        bool                is_last{false};
+        uint8_t             mask_key[4];
+        unsigned int        hdr_extra_size{0};
+        uint64_t            paylen{0};
+        enum {header_frame, header_extra, body, done} state{header_frame};
+
+    public:
+        bool parse(std::vector<char>& msg, std::string& buf, std::error_code& ec);
+        websocket_opcode get_opcode() const;
+        bool             is_server() const;
+    };
+
+//----------------------------------------------------------------------------------------------------------------
+
+    void serialize_websocket_message(const std::vector<char>& msg, websocket_opcode opcode, bool do_mask, std::string& buf);
 
 //----------------------------------------------------------------------------------------------------------------
 
@@ -625,9 +673,11 @@ namespace http
         ws_handshake_missing_seq_accept,
         ws_handshake_bad_sec_accept,
         ws_accept_missing_seq_key,
-        ws_invalid_opcode,
+        ws_read_bad_opcode,
+        ws_read_bad_rsv,
         ws_closing_handshake_non_matching_opcode,
-        ws_closing_handshake_non_matching_reason
+        ws_closing_handshake_non_matching_reason,
+        ws_invalid_opcode,
     };
 
     std::error_code make_error_code(error ec);

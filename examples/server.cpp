@@ -27,6 +27,8 @@ using boost::asio::make_strand;
 using tcp_acceptor      = boost::asio::basic_socket_acceptor<tcp, boost::asio::io_context::executor_type>;
 using tcp_socket        = boost::asio::basic_stream_socket<tcp,   boost::asio::strand<boost::asio::io_context::executor_type>>;
 using tls_socket        = boost::asio::ssl::stream<tcp_socket>;
+using http_socket       = http::stream<tcp_socket>;
+using https_socket      = http::stream<tls_socket>;
 using awaitable         = boost::asio::awaitable<void, boost::asio::io_context::executor_type>;
 using awaitable_strand  = boost::asio::awaitable<void, boost::asio::strand<boost::asio::io_context::executor_type>>;
 namespace fs = std::filesystem;
@@ -273,7 +275,7 @@ awaitable_strand websocket_write_loop(std::shared_ptr<websocket_impl<Socket>> ws
         {
             auto buf = std::move(ws->buf_write_queue.front());
             ws->buf_write_queue.erase(begin(ws->buf_write_queue));
-            co_await http::async_ws_write(ws->sock, buf.data, buf.is_text, true);
+            co_await http::async_ws_write(ws->sock, buf.data, buf.is_text);
         }
     }
     catch(const std::exception& e)
@@ -285,15 +287,15 @@ awaitable_strand websocket_write_loop(std::shared_ptr<websocket_impl<Socket>> ws
 
 template<class Socket>
 awaitable_strand websocket_session (
-    Socket                  sock,
+    http::stream<Socket>    sock,
     http::request           req,
     const ws_handlers_t&    handlers,
     std::shared_ptr<void>   ctx
 )
 {
     // Move into shared state
-    auto state = std::make_shared<websocket_impl<Socket>>(std::move(sock), ctx);
-    std::vector<char> buf;
+    auto state = std::make_shared<websocket_impl<http::stream<Socket>>>(std::move(sock), ctx);
+    std::vector<char> msg;
 
     try 
     {
@@ -304,8 +306,8 @@ awaitable_strand websocket_session (
         for(;;)
         {
             // Read
-            const bool is_text = co_await http::async_ws_read(state->sock, buf, true);
-            handlers.on_data(state, buf.data(), buf.size(), is_text);
+            const bool is_text = co_await http::async_ws_read(state->sock, msg);
+            handlers.on_data(state, msg.data(), msg.size(), is_text);
         }
     }
     catch(const std::exception& e)
@@ -325,7 +327,7 @@ awaitable_strand websocket_session (
 
 template<class Socket>
 awaitable_strand http_session (
-    Socket                  sock, 
+    http::stream<Socket>    sock, 
     const api_options&      options,
     std::shared_ptr<void>   ctx
 )
@@ -334,16 +336,15 @@ awaitable_strand http_session (
     {
         http::request   req;
         http::response  resp;
-        std::string     buf;
 
         // Complete TLS handshake if SSL
         if constexpr(std::is_same_v<Socket, tls_socket>)
-            co_await sock.async_handshake(boost::asio::ssl::stream_base::server);
+            co_await sock.next_layer().async_handshake(boost::asio::ssl::stream_base::server);
         
         for (;;)
         {
             // Read request
-            size_t res = co_await http::async_http_read(sock, req, buf);
+            size_t res = co_await http::async_http_read(sock, req);
 
             // Manage websocket
             if (req.is_websocket_req())
@@ -362,13 +363,13 @@ awaitable_strand http_session (
             handle_request(options.docroot, options.username, options.password, options.http_handlers, req, resp);
 
             // Write response
-            res = co_await async_http_write(sock, resp, buf);
+            res = co_await async_http_write(sock, resp);
 
             // Shutdown if necessary
             if(!keep_alive)
             {
                 if constexpr(std::is_same_v<Socket, tls_socket>)
-                    co_await sock.async_shutdown();
+                    co_await sock.next_layer().async_shutdown();
                 sock.lowest_layer().shutdown(tcp_socket::shutdown_both);
                 break;
             }
@@ -418,14 +419,9 @@ awaitable listen (
         tcp_socket sock = co_await acceptor.async_accept(make_strand(ioc));
 
         if (options.use_tls)
-        {   
-            tls_socket tls_sock{std::move(sock), *ssl};
-            co_spawn(sock.get_executor(), http_session(std::move(tls_sock), options, ssl), detached);
-        }
+            co_spawn(sock.get_executor(), http_session(https_socket(tls_socket(std::move(sock), *ssl), true), options, ssl), detached);
         else
-        {
-            co_spawn(sock.get_executor(), http_session(std::move(sock), options, nullptr), detached);
-        }
+            co_spawn(sock.get_executor(), http_session(http_socket(std::move(sock), true), options, nullptr), detached);
     }
 }
 

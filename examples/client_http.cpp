@@ -22,6 +22,7 @@ using boost::asio::detached;
 using boost::asio::ip::tcp;
 using boost::asio::make_strand;
 using tcp_socket        = boost::asio::basic_stream_socket<tcp, boost::asio::strand<boost::asio::io_context::executor_type>>;
+using http_socket       = http::stream<tcp_socket>;
 using awaitable         = boost::asio::awaitable<void, boost::asio::io_context::executor_type>;
 using awaitable_strand  = boost::asio::awaitable<void, boost::asio::strand<boost::asio::io_context::executor_type>>;
 using namespace std::chrono_literals;
@@ -55,11 +56,10 @@ awaitable_strand http_session(std::string_view host)
     try
     {
         // Connect
-        tcp_socket      sock(co_await boost::asio::this_coro::executor);
+        http_socket     sock(tcp_socket{co_await boost::asio::this_coro::executor}, false);
         tcp::resolver   resolver(sock.get_executor());
         http::request   req;
         http::response  resp;
-        std::string     buf;
         size_t          ret{};
 
         // Prepare request
@@ -69,9 +69,9 @@ awaitable_strand http_session(std::string_view host)
         req.add_header(http::user_agent, "Boost::asio " + std::to_string(BOOST_ASIO_VERSION)); // optional header
 
         // Async IO
-        co_await boost::asio::async_connect(sock, co_await resolver.async_resolve(host, "80"), boost::asio::cancel_after(5s, deferred));
-        ret = co_await http::async_http_write(sock, req,  buf);
-        ret = co_await http::async_http_read(sock,  resp, buf);
+        co_await boost::asio::async_connect(sock.next_layer(), co_await resolver.async_resolve(host, "80"), boost::asio::cancel_after(5s, deferred));
+        ret = co_await http::async_http_write(sock, req);
+        ret = co_await http::async_http_read(sock,  resp);
 
         // Print response
         print_header(resp);

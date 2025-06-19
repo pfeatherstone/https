@@ -23,6 +23,8 @@ using boost::asio::ip::tcp;
 using boost::asio::make_strand;
 using tcp_socket        = boost::asio::basic_stream_socket<tcp, boost::asio::strand<boost::asio::io_context::executor_type>>;
 using tls_socket        = boost::asio::ssl::stream<tcp_socket>;
+using http_socket       = http::stream<tcp_socket>;
+using https_socket      = http::stream<tls_socket>;
 using awaitable_strand  = boost::asio::awaitable<void, boost::asio::strand<boost::asio::io_context::executor_type>>;
 using namespace std::chrono_literals;
 
@@ -32,14 +34,13 @@ using namespace std::chrono_literals;
 //----------------------------------------------------------------------------------------------------------------
 //----------------------------------------------------------------------------------------------------------------
 
-awaitable_strand read_write_one(auto& sock, std::string_view host, std::vector<char>& buf)
+awaitable_strand read_write_one(auto& sock, std::string_view host, std::vector<char>& msg)
 {
-    constexpr bool is_server{false};
     constexpr bool is_text{false};
     co_await http::async_ws_handshake(sock, host, "/ws");
-    co_await http::async_ws_write(sock, buf, is_text, is_server);
-    co_await http::async_ws_read(sock, buf, is_server);
-    co_await http::async_ws_close(sock, http::ws_going_away, is_server);
+    co_await http::async_ws_write(sock, msg, is_text);
+    co_await http::async_ws_read(sock, msg);
+    co_await http::async_ws_close(sock, http::ws_going_away);
 }
 
 awaitable_strand ws_session(std::string_view host, uint16_t port, std::string_view msg)
@@ -47,12 +48,12 @@ awaitable_strand ws_session(std::string_view host, uint16_t port, std::string_vi
     try
     {
         // Objects
-        tcp_socket        sock(co_await boost::asio::this_coro::executor);
+        http_socket       sock(tcp_socket(co_await boost::asio::this_coro::executor), false);
         tcp::resolver     resolver(sock.get_executor());
         std::vector<char> buf(begin(msg), end(msg));
 
         // Async IO
-        co_await boost::asio::async_connect(sock, co_await resolver.async_resolve(host, std::to_string(port)), boost::asio::cancel_after(5s));
+        co_await boost::asio::async_connect(sock.lowest_layer(), co_await resolver.async_resolve(host, std::to_string(port)), boost::asio::cancel_after(5s));
         co_await read_write_one(sock, host, buf);
 
         // Print echo
@@ -74,15 +75,15 @@ awaitable_strand ws_ssl_session(std::string_view host, uint16_t port, std::strin
         ssl.set_verify_callback([](bool preverified, boost::asio::ssl::verify_context& ctx) {return true;});
         ssl.set_verify_mode(boost::asio::ssl::verify_peer);
 
-        tls_socket        sock(tcp_socket(co_await boost::asio::this_coro::executor), ssl);
+        https_socket      sock(tls_socket(co_await boost::asio::this_coro::executor, ssl), false);
         tcp::resolver     resolver(sock.get_executor());
         std::vector<char> buf(begin(msg), end(msg));
 
         // Async IO
-        co_await boost::asio::async_connect(sock.next_layer(), co_await resolver.async_resolve(host, std::to_string(port)), boost::asio::cancel_after(5s));
-        co_await sock.async_handshake(boost::asio::ssl::stream_base::client);
+        co_await boost::asio::async_connect(sock.lowest_layer(), co_await resolver.async_resolve(host, std::to_string(port)), boost::asio::cancel_after(5s));
+        co_await sock.next_layer().async_handshake(boost::asio::ssl::stream_base::client);
         co_await read_write_one(sock, host, buf);
-        co_await sock.async_shutdown();
+        co_await sock.next_layer().async_shutdown();
 
         // Print echo
         printf("TLS server echoed back\n\"%.*s\"\n", (int)buf.size(), buf.data());
