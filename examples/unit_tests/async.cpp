@@ -396,6 +396,95 @@ TEST_SUITE("[ASYNC]")
             }
         }
 
+        SUBCASE("awaitable - server sends")
+        {
+            try 
+            {
+                const auto run_server = [&]() -> awaitable
+                {
+                    co_await acceptor.async_accept(peer.lowest_layer());
+                    co_await http::async_http_read(peer, req);
+                    REQUIRE(req.is_websocket_req());
+                    co_await http::async_ws_accept(peer, req);
+                    data_peer.assign(begin(data), end(data));
+                    co_await http::async_ws_write(peer, data_peer, false);
+                    data_peer.assign(begin(text), end(text));
+                    co_await http::async_ws_write(peer, data_peer, true);
+                    co_await http::async_ws_close(peer, http::ws_going_away);
+                };
+
+                const auto run_client = [&]() -> awaitable
+                {
+                    bool is_text{};
+                    co_await boost::asio::async_connect(client.lowest_layer(), co_await resolver.async_resolve("localhost", "6667"));
+                    co_await http::async_ws_handshake(client, "localhost", "/ws");
+                    is_text = co_await http::async_ws_read(client, data_client);
+                    REQUIRE(!is_text);
+                    REQUIRE(data_client.size() == data.size());
+                    REQUIRE(std::equal(begin(data_client), end(data_client), begin(data)));
+                    is_text = co_await http::async_ws_read(client, data_client);
+                    REQUIRE(is_text);
+                    REQUIRE(data_client.size() == text.size());
+                    REQUIRE(std::equal(begin(data_client), end(data_client), begin(text)));
+                    auto [ec, is_text2] = co_await http::async_ws_read(client, data_client, as_tuple(deferred));
+                    REQUIRE(ec == http::ws_going_away);
+                };
+
+                co_spawn(ioc, run_server(), detached);
+                co_spawn(ioc, run_client(), detached);
+                ioc.run();
+            }
+            catch(const std::exception& e)
+            {
+                exception_thrown = true;
+            }
+        }
+
+        SUBCASE("coro - server sends")
+        {
+            try 
+            {
+                const auto run_server = [&](yield_context yield)
+                {
+                    acceptor.async_accept(peer.lowest_layer(), yield);
+                    http::async_http_read(peer, req, yield);
+                    REQUIRE(req.is_websocket_req());
+                    http::async_ws_accept(peer, req, yield);
+                    data_peer.assign(begin(data), end(data));
+                    http::async_ws_write(peer, data_peer, false, yield);
+                    data_peer.assign(begin(text), end(text));
+                    http::async_ws_write(peer, data_peer, true, yield);
+                    http::async_ws_close(peer, http::ws_going_away, yield);
+                };
+
+                const auto run_client = [&](yield_context yield)
+                {
+                    bool is_text{};
+                    boost::asio::async_connect(client.lowest_layer(), resolver.async_resolve("localhost", "6667", yield), yield);
+                    http::async_ws_handshake(client, "localhost", "/ws", yield);
+                    is_text = http::async_ws_read(client, data_client, yield);
+                    REQUIRE(!is_text);
+                    REQUIRE(data_client.size() == data.size());
+                    REQUIRE(std::equal(begin(data_client), end(data_client), begin(data)));
+                    is_text = http::async_ws_read(client, data_client, yield);
+                    REQUIRE(is_text);
+                    REQUIRE(data_client.size() == text.size());
+                    REQUIRE(std::equal(begin(data_client), end(data_client), begin(text)));
+                    boost::system::error_code ec{};
+                    is_text = http::async_ws_read(client, data_client, yield[ec]);
+                    REQUIRE(ec == http::ws_going_away);
+                };
+
+                boost::asio::spawn(ioc, run_server, detached);
+                boost::asio::spawn(ioc, run_client, detached);
+                ioc.run();
+            }
+            catch(const std::exception& e)
+            {
+                exception_thrown = true;
+            }
+        }
+
         REQUIRE(!exception_thrown);
     }
 }
