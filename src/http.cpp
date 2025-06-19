@@ -1403,6 +1403,21 @@ namespace http
 
 //----------------------------------------------------------------------------------------------------------------
 
+    struct websocket_frame
+    {
+        unsigned char opcode : 4;
+        unsigned char rsv3   : 1;
+        unsigned char rsv2   : 1;
+        unsigned char rsv1   : 1;
+        unsigned char fin    : 1;
+        unsigned char paylen : 7;
+        unsigned char masked : 1;
+    };
+
+    static_assert(sizeof(websocket_frame) == 2, "bad");
+
+//----------------------------------------------------------------------------------------------------------------
+
     bool websocket_parser::parse(std::vector<char>& msg, std::string& buf, std::error_code& ec)
     {
         while (!buf.empty() && !ec && state != done)
