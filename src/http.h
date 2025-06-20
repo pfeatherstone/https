@@ -6,6 +6,7 @@
 #include <array>
 #include <memory>
 #include <system_error>
+#include <boost/asio/buffer.hpp>
 
 namespace http
 {
@@ -626,7 +627,7 @@ namespace http
 
 //----------------------------------------------------------------------------------------------------------------
 
-    void serialize_websocket_message(const std::vector<char>& msg, websocket_opcode opcode, bool do_mask, std::string& buf);
+    void serialize_websocket_message(boost::asio::const_buffer msg, websocket_opcode opcode, bool do_mask, std::string& buf);
 
 //----------------------------------------------------------------------------------------------------------------
 

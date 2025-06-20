@@ -1,6 +1,5 @@
 #include <cassert>
 #include <cstring>
-#include <cstdarg>
 #include <cctype>
 #include <algorithm>
 #include <filesystem>
@@ -1565,7 +1564,7 @@ namespace http
 
 //----------------------------------------------------------------------------------------------------------------
 
-    void serialize_websocket_message(const std::vector<char>& msg, websocket_opcode opcode, bool do_mask, std::string& buf)
+    void serialize_websocket_message(boost::asio::const_buffer msg, websocket_opcode opcode, bool do_mask, std::string& buf)
     {
         // Header
         websocket_frame hdr{};
@@ -1638,13 +1637,13 @@ namespace http
         // Add data
         if (do_mask)
         {
+            auto data = static_cast<const uint8_t*>(msg.data());
             for (size_t i = 0 ; i < msg.size() ; ++i)
-                buf[hdr_len+i] = msg[i] ^ mask_key[i%4];
+                buf[hdr_len+i] = data[i] ^ mask_key[i%4];
         }
         else
         {
-            for (size_t i = 0 ; i < msg.size() ; ++i)
-                buf[hdr_len+i] = msg[i];
+            memcpy(&buf[hdr_len], msg.data(), msg.size());
         }
     }
 

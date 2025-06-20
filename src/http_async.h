@@ -1,8 +1,9 @@
 #pragma once
 
 #include <boost/asio/version.hpp>
-#include <boost/asio/compose.hpp>
+#include <boost/asio/buffer.hpp>
 #include <boost/asio/write.hpp>
+#include <boost/asio/compose.hpp>
 #include "http.h"
 
 namespace http
@@ -139,7 +140,7 @@ namespace http
     >
     auto async_ws_write (
         stream<Sock>&               sock,
-        const std::vector<char>&    msg,
+        boost::asio::const_buffer   msg,
         bool                        is_text,
         CompletionToken&&           token = boost::asio::default_completion_token_t<typename Sock::executor_type>()
     );
@@ -636,7 +637,7 @@ namespace http
         >
         inline auto async_ws_write (
             stream<Sock>&               sock,
-            const std::vector<char>&    buf,
+            boost::asio::const_buffer   buf,
             websocket_opcode            opcode,
             CompletionToken&&           token
         )
@@ -658,7 +659,7 @@ namespace http
     >
     inline auto async_ws_write (
         stream<Sock>&               sock,
-        const std::vector<char>&    buf,
+        boost::asio::const_buffer   buf,
         bool                        is_text,
         CompletionToken&&           token
     )
@@ -788,7 +789,7 @@ namespace http
                 {
                     state = read_response ? reading : done;
                     serialize_ws_code(*msg, reason);
-                    async_ws_write(sock, *msg, WS_OPCODE_CLOSE, std::move(self));
+                    async_ws_write(sock, boost::asio::buffer(*msg), WS_OPCODE_CLOSE, std::move(self));
                 }
 
                 // Read echoed CLOSE frame
@@ -931,7 +932,7 @@ namespace http
                         break;
                     case WS_OPCODE_PING:
                         state = reading;
-                        async_ws_write(sock, msg, WS_OPCODE_PONG, std::move(self));
+                        async_ws_write(sock, boost::asio::buffer(msg), WS_OPCODE_PONG, std::move(self));
                         break;
                     case WS_OPCODE_PONG:
                         async_ws_read_one(sock, msg, std::move(self));

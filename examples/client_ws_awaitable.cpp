@@ -38,7 +38,7 @@ awaitable_strand read_write_one(auto& sock, std::string_view host, std::vector<c
 {
     constexpr bool is_text{false};
     co_await http::async_ws_handshake(sock, host, "/ws");
-    co_await http::async_ws_write(sock, msg, is_text);
+    co_await http::async_ws_write(sock, boost::asio::buffer(msg), is_text);
     co_await http::async_ws_read(sock, msg);
     co_await http::async_ws_close(sock, http::ws_going_away);
 }

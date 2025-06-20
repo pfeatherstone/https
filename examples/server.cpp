@@ -275,7 +275,7 @@ awaitable_strand websocket_write_loop(std::shared_ptr<websocket_impl<Socket>> ws
         {
             auto buf = std::move(ws->buf_write_queue.front());
             ws->buf_write_queue.erase(begin(ws->buf_write_queue));
-            co_await http::async_ws_write(ws->sock, buf.data, buf.is_text);
+            co_await http::async_ws_write(ws->sock, boost::asio::buffer(buf.data), buf.is_text);
         }
     }
     catch(const std::exception& e)

@@ -224,11 +224,9 @@ TEST_SUITE("[ASYNC]")
                         REQUIRE(!bool(ec));
                         http::async_ws_handshake(client, "localhost", "/ws", [&](boost::system::error_code ec) {
                             REQUIRE(!bool(ec));
-                            data_client.assign(begin(data), end(data));
-                            http::async_ws_write(client, data_client, false, [&](boost::system::error_code ec, std::size_t) {
+                            http::async_ws_write(client, boost::asio::buffer(data), false, [&](boost::system::error_code ec, std::size_t) {
                                 REQUIRE(!bool(ec));
-                                data_client.assign(begin(text), end(text));
-                                http::async_ws_write(client, data_client, true, [&](boost::system::error_code ec, std::size_t) {
+                                http::async_ws_write(client,  boost::asio::buffer(text), true, [&](boost::system::error_code ec, std::size_t) {
                                     REQUIRE(!bool(ec));
                                     http::async_ws_close(client, http::ws_going_away, [&](boost::system::error_code ec) {
                                         REQUIRE(!bool(ec));
@@ -274,10 +272,8 @@ TEST_SUITE("[ASYNC]")
                 {
                     co_await boost::asio::async_connect(client.lowest_layer(), co_await resolver.async_resolve("localhost", "6667"));
                     co_await http::async_ws_handshake(client, "localhost", "/ws");
-                    data_client.assign(begin(data), end(data));
-                    co_await http::async_ws_write(client, data_client, false);
-                    data_client.assign(begin(text), end(text));
-                    co_await http::async_ws_write(client, data_client, true);
+                    co_await http::async_ws_write(client, boost::asio::buffer(data), false);
+                    co_await http::async_ws_write(client, boost::asio::buffer(text), true);
                     co_await http::async_ws_close(client, http::ws_going_away);
                 };
 
@@ -320,10 +316,8 @@ TEST_SUITE("[ASYNC]")
                     constexpr bool is_server{false};
                     boost::asio::async_connect(client.lowest_layer(), resolver.async_resolve("localhost", "6667", yield), yield);
                     http::async_ws_handshake(client, "localhost", "/ws", yield);
-                    data_client.assign(begin(data), end(data));
-                    http::async_ws_write(client, data_client, false, yield);
-                    data_client.assign(begin(text), end(text));
-                    http::async_ws_write(client, data_client, true, yield);
+                    http::async_ws_write(client, boost::asio::buffer(data), false, yield);
+                    http::async_ws_write(client, boost::asio::buffer(text), true, yield);
                     http::async_ws_close(client, http::ws_going_away, yield);
                 };
 
@@ -348,11 +342,9 @@ TEST_SUITE("[ASYNC]")
                         REQUIRE(req.is_websocket_req());
                         http::async_ws_accept(peer, req, [&](boost::system::error_code ec, std::size_t) {
                             REQUIRE(!bool(ec));
-                            data_peer.assign(begin(data), end(data));
-                            http::async_ws_write(peer, data_peer, false, [&](boost::system::error_code ec, std::size_t nwritten) {
+                            http::async_ws_write(peer, boost::asio::buffer(data), false, [&](boost::system::error_code ec, std::size_t nwritten) {
                                 REQUIRE(!bool(ec));
-                                data_peer.assign(begin(text), end(text));
-                                http::async_ws_write(peer, data_peer, true, [&](boost::system::error_code ec, std::size_t) {
+                                http::async_ws_write(peer, boost::asio::buffer(text), true, [&](boost::system::error_code ec, std::size_t) {
                                     REQUIRE(!bool(ec));
                                     http::async_ws_close(peer, http::ws_going_away, [&](boost::system::error_code ec) {
                                         REQUIRE(!bool(ec));
@@ -406,10 +398,8 @@ TEST_SUITE("[ASYNC]")
                     co_await http::async_http_read(peer, req);
                     REQUIRE(req.is_websocket_req());
                     co_await http::async_ws_accept(peer, req);
-                    data_peer.assign(begin(data), end(data));
-                    co_await http::async_ws_write(peer, data_peer, false);
-                    data_peer.assign(begin(text), end(text));
-                    co_await http::async_ws_write(peer, data_peer, true);
+                    co_await http::async_ws_write(peer, boost::asio::buffer(data), false);
+                    co_await http::async_ws_write(peer, boost::asio::buffer(text), true);
                     co_await http::async_ws_close(peer, http::ws_going_away);
                 };
 
@@ -450,10 +440,8 @@ TEST_SUITE("[ASYNC]")
                     http::async_http_read(peer, req, yield);
                     REQUIRE(req.is_websocket_req());
                     http::async_ws_accept(peer, req, yield);
-                    data_peer.assign(begin(data), end(data));
-                    http::async_ws_write(peer, data_peer, false, yield);
-                    data_peer.assign(begin(text), end(text));
-                    http::async_ws_write(peer, data_peer, true, yield);
+                    http::async_ws_write(peer, boost::asio::buffer(data), false, yield);
+                    http::async_ws_write(peer, boost::asio::buffer(text), true, yield);
                     http::async_ws_close(peer, http::ws_going_away, yield);
                 };
 
