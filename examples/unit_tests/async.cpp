@@ -178,6 +178,8 @@ TEST_SUITE("[ASYNC]")
         std::string       text;
         std::vector<char> data_peer;
         std::vector<char> data_client;
+        std::string       text_peer;
+        std::string       text_client;
 
         std::mt19937 eng(std::random_device{}());
         std::uniform_int_distribution<unsigned int> d{0, 255};
@@ -202,13 +204,11 @@ TEST_SUITE("[ASYNC]")
                             http::async_ws_read(peer, data_peer, [&](boost::system::error_code ec, bool is_text) {
                                 REQUIRE(!bool(ec));
                                 REQUIRE(!is_text);
-                                REQUIRE(data_peer.size() == data.size());
-                                REQUIRE(std::equal(begin(data_peer), end(data_peer), begin(data)));
-                                http::async_ws_read(peer, data_peer, [&](boost::system::error_code ec, bool is_text) {
+                                REQUIRE(data_peer == data);
+                                http::async_ws_read(peer, text_peer, [&](boost::system::error_code ec, bool is_text) {
                                     REQUIRE(!bool(ec));
                                     REQUIRE(is_text);
-                                    REQUIRE(data_peer.size() == text.size());
-                                    REQUIRE(std::equal(begin(data_peer), end(data_peer), begin(text)));
+                                    REQUIRE(text_peer == text);
                                     http::async_ws_read(peer, data_peer, [&](boost::system::error_code ec, bool is_text) {
                                         REQUIRE(ec == http::ws_going_away);
                                     });
@@ -226,7 +226,7 @@ TEST_SUITE("[ASYNC]")
                             REQUIRE(!bool(ec));
                             http::async_ws_write(client, boost::asio::buffer(data), false, [&](boost::system::error_code ec, std::size_t) {
                                 REQUIRE(!bool(ec));
-                                http::async_ws_write(client,  boost::asio::buffer(text), true, [&](boost::system::error_code ec, std::size_t) {
+                                http::async_ws_write(client, boost::asio::buffer(text), true, [&](boost::system::error_code ec, std::size_t) {
                                     REQUIRE(!bool(ec));
                                     http::async_ws_close(client, http::ws_going_away, [&](boost::system::error_code ec) {
                                         REQUIRE(!bool(ec));
@@ -258,12 +258,10 @@ TEST_SUITE("[ASYNC]")
                     co_await http::async_ws_accept(peer, req);
                     is_text = co_await http::async_ws_read(peer, data_peer);
                     REQUIRE(!is_text);
-                    REQUIRE(data_peer.size() == data.size());
-                    REQUIRE(std::equal(begin(data_peer), end(data_peer), begin(data)));
-                    is_text = co_await http::async_ws_read(peer, data_peer);
+                    REQUIRE(data_peer == data);
+                    is_text = co_await http::async_ws_read(peer, text_peer);
                     REQUIRE(is_text);
-                    REQUIRE(data_peer.size() == text.size());
-                    REQUIRE(std::equal(begin(data_peer), end(data_peer), begin(text)));
+                    REQUIRE(text_peer == text);
                     auto [ec, is_text2] = co_await http::async_ws_read(peer, data_peer, as_tuple(deferred));
                     REQUIRE(ec == http::ws_going_away);
                 };
@@ -300,12 +298,10 @@ TEST_SUITE("[ASYNC]")
                     http::async_ws_accept(peer, req, yield);
                     is_text = http::async_ws_read(peer, data_peer, yield);
                     REQUIRE(!is_text);
-                    REQUIRE(data_peer.size() == data.size());
-                    REQUIRE(std::equal(begin(data_peer), end(data_peer), begin(data)));
-                    is_text = http::async_ws_read(peer, data_peer, yield);
+                    REQUIRE(data_peer == data);
+                    is_text = http::async_ws_read(peer, text_peer, yield);
                     REQUIRE(is_text);
-                    REQUIRE(data_peer.size() == text.size());
-                    REQUIRE(std::equal(begin(data_peer), end(data_peer), begin(text)));
+                    REQUIRE(text_peer == text);
                     boost::system::error_code ec{};
                     is_text = http::async_ws_read(peer, data_peer, yield[ec]);
                     REQUIRE(ec == http::ws_going_away);
@@ -364,13 +360,11 @@ TEST_SUITE("[ASYNC]")
                             http::async_ws_read(client, data_client, [&](boost::system::error_code ec, bool is_text) {
                                 REQUIRE(!bool(ec));
                                 REQUIRE(!is_text);
-                                REQUIRE(data_client.size() == data.size());
-                                REQUIRE(std::equal(begin(data_client), end(data_client), begin(data)));
-                                http::async_ws_read(client, data_client, [&](boost::system::error_code ec, bool is_text) {
+                                REQUIRE(data_client == data);
+                                http::async_ws_read(client, text_client, [&](boost::system::error_code ec, bool is_text) {
                                     REQUIRE(!bool(ec));
                                     REQUIRE(is_text);
-                                    REQUIRE(data_client.size() == text.size());
-                                    REQUIRE(std::equal(begin(data_client), end(data_client), begin(text)));
+                                    REQUIRE(text_client == text);
                                     http::async_ws_read(client, data_client, [&](boost::system::error_code ec, bool is_text) {
                                         REQUIRE(ec == http::ws_going_away);
                                     });
@@ -410,12 +404,10 @@ TEST_SUITE("[ASYNC]")
                     co_await http::async_ws_handshake(client, "localhost", "/ws");
                     is_text = co_await http::async_ws_read(client, data_client);
                     REQUIRE(!is_text);
-                    REQUIRE(data_client.size() == data.size());
-                    REQUIRE(std::equal(begin(data_client), end(data_client), begin(data)));
-                    is_text = co_await http::async_ws_read(client, data_client);
+                    REQUIRE(data_client == data);
+                    is_text = co_await http::async_ws_read(client, text_client);
                     REQUIRE(is_text);
-                    REQUIRE(data_client.size() == text.size());
-                    REQUIRE(std::equal(begin(data_client), end(data_client), begin(text)));
+                    REQUIRE(text_client == text);
                     auto [ec, is_text2] = co_await http::async_ws_read(client, data_client, as_tuple(deferred));
                     REQUIRE(ec == http::ws_going_away);
                 };
@@ -452,12 +444,10 @@ TEST_SUITE("[ASYNC]")
                     http::async_ws_handshake(client, "localhost", "/ws", yield);
                     is_text = http::async_ws_read(client, data_client, yield);
                     REQUIRE(!is_text);
-                    REQUIRE(data_client.size() == data.size());
-                    REQUIRE(std::equal(begin(data_client), end(data_client), begin(data)));
-                    is_text = http::async_ws_read(client, data_client, yield);
+                    REQUIRE(data_client == data);
+                    is_text = http::async_ws_read(client, text_client, yield);
                     REQUIRE(is_text);
-                    REQUIRE(data_client.size() == text.size());
-                    REQUIRE(std::equal(begin(data_client), end(data_client), begin(text)));
+                    REQUIRE(text_client == text);
                     boost::system::error_code ec{};
                     is_text = http::async_ws_read(client, data_client, yield[ec]);
                     REQUIRE(ec == http::ws_going_away);

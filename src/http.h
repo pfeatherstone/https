@@ -521,6 +521,43 @@ namespace http
 
 //----------------------------------------------------------------------------------------------------------------
 
+    class dynamic_buffer
+    {
+    private:
+        void* ptr_                                      = nullptr;
+        void    (*clear_)(void*)                        = nullptr;
+        void    (*resize_)(void*, size_t)               = nullptr;
+        size_t  (*size_)(const void*)                   = nullptr;
+        void*   (*data_)(void*)                         = nullptr;
+        void    (*append_)(void*, const char*, size_t)  = nullptr;
+        
+    public:
+        dynamic_buffer() = delete;
+        
+        template<class T, std::enable_if_t<!std::is_same_v<T, dynamic_buffer>, int> = 0>
+        dynamic_buffer(T& buf) noexcept
+        : ptr_{&buf},
+          clear_{[](void* self) {reinterpret_cast<T*>(self)->clear();}},
+          resize_{[](void* self, size_t n) {reinterpret_cast<T*>(self)->resize(n);}},
+          size_{[](const void* self) { return reinterpret_cast<const T*>(self)->size();}},
+          data_{[](void* self) -> void* { return reinterpret_cast<T*>(self)->data();}},
+          append_{[](void* self, const char* data, size_t ndata){
+            T& me = *reinterpret_cast<T*>(self);
+            me.insert(end(me), data, data + ndata);
+          }}
+        {
+        }
+
+        void    clear();
+        size_t  size() const;
+        void    resize(size_t n);
+        void*   data();
+        auto    buffer() -> boost::asio::const_buffer;
+        void    append(const char* data, size_t ndata);
+    };
+
+//----------------------------------------------------------------------------------------------------------------
+
     struct query_param
     {
         std::string key;
@@ -620,7 +657,7 @@ namespace http
         enum {header_frame, header_extra, body, done} state{header_frame};
 
     public:
-        bool parse(std::vector<char>& msg, std::string& buf, std::error_code& ec);
+        bool parse(dynamic_buffer msg, std::string& buf, std::error_code& ec);
         websocket_opcode get_opcode() const;
         bool             is_server() const;
     };

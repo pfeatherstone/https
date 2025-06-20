@@ -813,6 +813,38 @@ namespace http
 
 //----------------------------------------------------------------------------------------------------------------
 
+    void dynamic_buffer::clear()
+    {
+        clear_(ptr_);
+    }
+
+    size_t dynamic_buffer::size() const
+    {
+        return size_(ptr_);
+    }
+
+    void dynamic_buffer::resize(size_t n)
+    {
+        resize_(ptr_, n);
+    }
+
+    void dynamic_buffer::append(const char* data, size_t ndata)
+    {
+        append_(ptr_, data, ndata);
+    }
+
+    void* dynamic_buffer::data()
+    {
+        return data_(ptr_);
+    }
+
+    boost::asio::const_buffer dynamic_buffer::buffer()
+    {
+        return boost::asio::const_buffer(data(), size());
+    }
+
+//----------------------------------------------------------------------------------------------------------------
+
     static char from_hex(char ch) {return std::isdigit(ch) ? ch - '0' : std::tolower(ch) - 'a' + 10;}
     static char to_hex(char code) {constexpr char hex[] = "0123456789abcdef";  return hex[code & 15];}
 
@@ -1417,7 +1449,7 @@ namespace http
 
 //----------------------------------------------------------------------------------------------------------------
 
-    bool websocket_parser::parse(std::vector<char>& msg, std::string& buf, std::error_code& ec)
+    bool websocket_parser::parse(dynamic_buffer msg, std::string& buf, std::error_code& ec)
     {
         while (!buf.empty() && !ec && state != done)
         {
@@ -1538,7 +1570,7 @@ namespace http
                     }
 
                     // Add to message
-                    msg.insert(end(msg), begin(buf), begin(buf) + paylen);
+                    msg.append(&buf[0], paylen);
                     buf.erase(begin(buf), begin(buf) + paylen);
                     state = is_last ? done : header_frame;
                 }

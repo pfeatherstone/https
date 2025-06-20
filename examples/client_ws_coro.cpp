@@ -37,7 +37,7 @@ using namespace std::chrono_literals;
 //----------------------------------------------------------------------------------------------------------------
 
 template<class Sock>
-void read_write_one(Sock& sock, std::string_view host, std::vector<char>& msg, yield_context_strand yield)
+void read_write_one(Sock& sock, std::string_view host, std::string& msg, yield_context_strand yield)
 {
     constexpr bool is_text{false};
     http::async_ws_handshake(sock, host, "/ws", yield);
@@ -51,9 +51,9 @@ void ws_session(std::string_view host, uint16_t port, std::string_view msg, yiel
     try
     {
         // Objects
-        http_socket       sock(tcp_socket(yield.get_executor()), false);
-        tcp::resolver     resolver(sock.get_executor());
-        std::vector<char> buf(begin(msg), end(msg));
+        http_socket     sock(tcp_socket(yield.get_executor()), false);
+        tcp::resolver   resolver(sock.get_executor());
+        std::string     buf(msg);
 
         // Async IO
         boost::asio::async_connect(sock.lowest_layer(), resolver.async_resolve(host, std::to_string(port), yield), boost::asio::cancel_after(5s, yield));
@@ -78,9 +78,9 @@ void ws_ssl_session(std::string_view host, uint16_t port, std::string_view msg, 
         ssl.set_verify_callback([](bool preverified, boost::asio::ssl::verify_context& ctx) {return true;});
         ssl.set_verify_mode(boost::asio::ssl::verify_peer);
 
-        https_socket      sock(tls_socket(yield.get_executor(), ssl), false);
-        tcp::resolver     resolver(sock.get_executor());
-        std::vector<char> buf(begin(msg), end(msg));
+        https_socket    sock(tls_socket(yield.get_executor(), ssl), false);
+        tcp::resolver   resolver(sock.get_executor());
+        std::string     buf(msg);
 
         // Async IO
         boost::asio::async_connect(sock.lowest_layer(), resolver.async_resolve(host, std::to_string(port), yield), boost::asio::cancel_after(5s, yield));

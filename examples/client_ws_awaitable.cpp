@@ -34,7 +34,7 @@ using namespace std::chrono_literals;
 //----------------------------------------------------------------------------------------------------------------
 //----------------------------------------------------------------------------------------------------------------
 
-awaitable_strand read_write_one(auto& sock, std::string_view host, std::vector<char>& msg)
+awaitable_strand read_write_one(auto& sock, std::string_view host, std::string& msg)
 {
     constexpr bool is_text{false};
     co_await http::async_ws_handshake(sock, host, "/ws");
@@ -50,7 +50,7 @@ awaitable_strand ws_session(std::string_view host, uint16_t port, std::string_vi
         // Objects
         http_socket       sock(tcp_socket(co_await boost::asio::this_coro::executor), false);
         tcp::resolver     resolver(sock.get_executor());
-        std::vector<char> buf(begin(msg), end(msg));
+        std::string       buf(msg);
 
         // Async IO
         co_await boost::asio::async_connect(sock.lowest_layer(), co_await resolver.async_resolve(host, std::to_string(port)), boost::asio::cancel_after(5s));
@@ -77,7 +77,7 @@ awaitable_strand ws_ssl_session(std::string_view host, uint16_t port, std::strin
 
         https_socket      sock(tls_socket(co_await boost::asio::this_coro::executor, ssl), false);
         tcp::resolver     resolver(sock.get_executor());
-        std::vector<char> buf(begin(msg), end(msg));
+        std::string       buf(msg);
 
         // Async IO
         co_await boost::asio::async_connect(sock.lowest_layer(), co_await resolver.async_resolve(host, std::to_string(port)), boost::asio::cancel_after(5s));
