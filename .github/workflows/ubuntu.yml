@@ -1,0 +1,60 @@
+name: Ubuntu
+on:
+  push:
+    branches:
+      - '**'
+  pull_request:
+    branches:
+      - '**'
+
+jobs:
+  build-test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            compiler: gcc
+            c_compiler: gcc
+            cxx_compiler: g++
+            name: Ubuntu-22.04-GCC
+            packages: gcc g++
+          - os: ubuntu-22.04
+            compiler: clang
+            c_compiler: clang
+            cxx_compiler: clang++
+            name: Ubuntu-22.04-Clang
+            packages: clang
+          - os: ubuntu-24.04
+            compiler: gcc
+            c_compiler: gcc
+            cxx_compiler: g++
+            name: Ubuntu-24.04-GCC
+            packages: gcc g++
+          - os: ubuntu-24.04
+            compiler: clang
+            c_compiler: clang
+            cxx_compiler: clang++
+            name: Ubuntu-24.04-Clang
+            packages: clang
+
+    name: ${{ matrix.name }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y ninja-build cmake ${{ matrix.packages }}
+
+      - name: Run CMake configuration and build
+        run: |
+          cmake examples -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DCMAKE_C_COMPILER=${{ matrix.c_compiler }} \
+            -DCMAKE_CXX_COMPILER=${{ matrix.cxx_compiler }}
+          cmake --build build --parallel
+
+      - name: Run Unit Tests
+        run: ./build/tests
