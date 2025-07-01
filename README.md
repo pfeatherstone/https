@@ -3,7 +3,8 @@
 ![Windows](https://github.com/pfeatherstone/https/actions/workflows/windows.yml/badge.svg)
 
 # https
-HTTPS and WSS library.
+
+Provides HTTP(s) and WS(s) primitives as Asio [composed operations](https://think-async.com/Asio/asio-1.30.2/doc/asio/overview/composition/compose.html).
 This is an experimental replacement for Boost::Beast.
 
 ## Installation
@@ -44,7 +45,7 @@ $ ab -A Tommy:Aldridge -n 500000 -c <C> -k http://localhost:8000/ok
 $ ab -A Tommy:Aldridge -n 500000 -c <C> -k https://localhost:8000/ok
 ```
 
-Note, the example server is single threaded, uses C++20 coroutines and basic authentication (not particularly well optimized). I modified the program to use TLS 1.2 as `ab` doesn't support TLS 1.3. I have an Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz 12 core processor. I'm using gcc 13.1.0 and openssl 3.0.2. Here are the results:
+Note, the example server is single threaded, uses C++20 coroutines and basic authentication. The tests were undertaken on an Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz 12 core processor. I'm using gcc 13.1.0 and openssl 3.0.2.
 
 | Transport | Connections | Requests / s |
 | --------- | ----------- | -------------|
