@@ -483,12 +483,12 @@ namespace http
 
                     req->verb = METHOD_GET;
                     req->uri  = uri;
-                    req->add_header(field::host,                  host);
-                    req->add_header(field::user_agent,            "Boost::asio " + std::to_string(BOOST_ASIO_VERSION));
-                    req->add_header(field::connection,            "upgrade");
-                    req->add_header(field::upgrade,               "websocket");
-                    req->add_header(field::sec_websocket_version, "13");
-                    req->add_header(field::sec_websocket_key,     base64_encode(16, nonce));
+                    req->headers.add(field::host,                  host);
+                    req->headers.add(field::user_agent,            "Boost::asio " + std::to_string(BOOST_ASIO_VERSION));
+                    req->headers.add(field::connection,            "upgrade");
+                    req->headers.add(field::upgrade,               "websocket");
+                    req->headers.add(field::sec_websocket_version, "13");
+                    req->headers.add(field::sec_websocket_key,     base64_encode(16, nonce));
                     async_http_write(sock, *req, std::move(self));
                 }
 
@@ -513,11 +513,11 @@ namespace http
                     // Check Sec-WebSocket-Accept
                     else
                     {
-                        auto sec_ws_accept = reply->find(field::sec_websocket_accept);
+                        auto sec_ws_accept = reply->headers.find(field::sec_websocket_accept);
 
-                        if (sec_ws_accept == end(reply->headers))
+                        if (!sec_ws_accept)
                             self.complete(make_error_code(ws_handshake_missing_seq_accept));
-                        else if (sec_ws_accept->value != compute_sec_ws_accept(base64_encode(16, nonce)))
+                        else if (*sec_ws_accept != compute_sec_ws_accept(base64_encode(16, nonce)))
                             self.complete(make_error_code(ws_handshake_bad_sec_accept));
                         else
                             self.complete({});
@@ -577,10 +577,10 @@ namespace http
                     state = writing;
 
                     // Get key
-                    auto sec_ws_key = req.find(field::sec_websocket_key);
+                    auto sec_ws_key = req.headers.find(field::sec_websocket_key);
 
                     // Missing key
-                    if (sec_ws_key == end(req.headers))
+                    if (!sec_ws_key)
                     {
                         self.complete(make_error_code(ws_accept_missing_seq_key), 0);
                     }
@@ -591,10 +591,10 @@ namespace http
                         // Send response
                         reply->status   = status_type::switching_protocols;
                         reply->version  = req.version;
-                        reply->add_header(field::server,        "Boost::asio " + std::to_string(BOOST_ASIO_VERSION));
-                        reply->add_header(field::upgrade,       "websocket");
-                        reply->add_header(field::connection,    "Upgrade");
-                        reply->add_header(field::sec_websocket_accept, compute_sec_ws_accept(sec_ws_key->value));
+                        reply->headers.add(field::server,        "Boost::asio " + std::to_string(BOOST_ASIO_VERSION));
+                        reply->headers.add(field::upgrade,       "websocket");
+                        reply->headers.add(field::connection,    "Upgrade");
+                        reply->headers.add(field::sec_websocket_accept, compute_sec_ws_accept(*sec_ws_key));
                         async_http_write(sock, *reply, std::move(self));
                     }
                 }

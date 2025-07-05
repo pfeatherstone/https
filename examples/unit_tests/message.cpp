@@ -419,18 +419,18 @@ TEST_SUITE("[MESSAGE]")
         http::request req0;
         req0.verb = http::METHOD_GET;
         req0.uri  = "/path/to/resource/with+spaces";
-        req0.add_header(http::host,                     "www.example.com:8080");
-        req0.add_header(http::user_agent,               "CustomTestAgent/7.4.2 (compatible; FancyBot/1.0; +https://example.com/bot)");
-        req0.add_header(http::accept,                   "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
-        req0.add_header(http::accept_language,          "en-US,en;q=0.5"); 
-        req0.add_header(http::accept_encoding,          "gzip, deflate, br");
-        req0.add_header(http::connection,               "keep-alive, Upgrade");
-        req0.add_header(http::upgrade,                  "websocket");
-        req0.add_header(http::sec_websocket_key,        "x3JJHMbDL1EzLkh9GBhXDw==");
-        req0.add_header(http::sec_websocket_version,    "13");
-        req0.add_header(http::cache_control,            "no-cache, no-store, must-revalidate");
-        req0.add_header(http::pragma,                   "no-cache");
-        req0.add_header(http::content_type,             "application/json; charset=\"utf-8\"");
+        req0.headers.add(http::host,                     "www.example.com:8080");
+        req0.headers.add(http::user_agent,               "CustomTestAgent/7.4.2 (compatible; FancyBot/1.0; +https://example.com/bot)");
+        req0.headers.add(http::accept,                   "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
+        req0.headers.add(http::accept_language,          "en-US,en;q=0.5"); 
+        req0.headers.add(http::accept_encoding,          "gzip, deflate, br");
+        req0.headers.add(http::connection,               "keep-alive, Upgrade");
+        req0.headers.add(http::upgrade,                  "websocket");
+        req0.headers.add(http::sec_websocket_key,        "x3JJHMbDL1EzLkh9GBhXDw==");
+        req0.headers.add(http::sec_websocket_version,    "13");
+        req0.headers.add(http::cache_control,            "no-cache, no-store, must-revalidate");
+        req0.headers.add(http::pragma,                   "no-cache");
+        req0.headers.add(http::content_type,             "application/json; charset=\"utf-8\"");
         req0.content = "{\"message\": \"This is a test body with some content.\"}";
         req0.params.push_back({"q",     "search term"});
         req0.params.push_back({"empty", ""});
@@ -494,8 +494,10 @@ TEST_SUITE("[MESSAGE]")
         REQUIRE(req0.headers.size() == req1.headers.size());
         for (size_t i = 0 ; i < req0.headers.size() ; ++i)
         {
-            REQUIRE(req0.headers[i].key == req1.headers[i].key);
-            REQUIRE(req0.headers[i].value == req1.headers[i].value);
+            const auto [key0, val0] = req0.headers[i];
+            const auto [key1, val1] = req1.headers[i];
+            REQUIRE(key0 == key1);
+            REQUIRE(val0 == val1);
         }
         REQUIRE(req0.content == req1.content);
     }
@@ -504,9 +506,9 @@ TEST_SUITE("[MESSAGE]")
     {
         http::response resp0;
         resp0.status = http::ok;
-        resp0.add_header(http::date,            "Sat, 07 Jun 2025 11:34:29 GMT");
-        resp0.add_header(http::content_type,    "application/json");
-        resp0.add_header(http::set_cookie,      "sails.sid=s%3AzNjVxqbbKjdhW62QxWPrO9_s7iw6gFfj.YkpdH7mCTkx%2FC%2BgLXyBzXETRD7gKyFu%2BKWMS43uKq4Y; Path=/; HttpOnly");
+        resp0.headers.add(http::date,            "Sat, 07 Jun 2025 11:34:29 GMT");
+        resp0.headers.add(http::content_type,    "application/json");
+        resp0.headers.add(http::set_cookie,      "sails.sid=s%3AzNjVxqbbKjdhW62QxWPrO9_s7iw6gFfj.YkpdH7mCTkx%2FC%2BgLXyBzXETRD7gKyFu%2BKWMS43uKq4Y; Path=/; HttpOnly");
 
         // Serialize
         std::error_code ec{};
@@ -558,8 +560,10 @@ TEST_SUITE("[MESSAGE]")
         REQUIRE(resp0.headers.size() == resp1.headers.size());
         for (size_t i = 0 ; i < resp0.headers.size() ; ++i)
         {
-            REQUIRE(resp0.headers[i].key == resp1.headers[i].key);
-            REQUIRE(resp0.headers[i].value == resp1.headers[i].value);
+            const auto [key0, val0] = resp0.headers[i];
+            const auto [key1, val1] = resp1.headers[i];
+            REQUIRE(key0 == key1);
+            REQUIRE(val0 == val1);
         }
         REQUIRE(resp0.content_str == resp1.content_str);
     }

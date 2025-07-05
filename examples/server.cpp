@@ -113,8 +113,8 @@ struct api_options
 void http_unauthorized (const http::request& req, http::response& resp, std::string_view msg)
 {
     resp.status = http::status_type::unauthorized;
-    resp.add_header(http::field::www_authenticate,    "Basic realm=\"Access to the staging site\"");
-    resp.add_header(http::field::cache_control,       "no-store");
+    resp.headers.add(http::field::www_authenticate,    "Basic realm=\"Access to the staging site\"");
+    resp.headers.add(http::field::cache_control,       "no-store");
     resp.content_str = msg;
 }
 
@@ -139,20 +139,20 @@ void http_server_error (const http::request& req, http::response& resp, std::str
 void http_file_data (const http::request& req, http::response& resp, std::string_view path, http::file_ptr file)
 {
     resp.status = http::status_type::ok;
-    resp.add_header(http::field::content_type,    http::get_mime_type(path));
-    resp.add_header(http::field::cache_control,   "no-cache, no-store, must-revalidate, private, max-age=0");
-    resp.add_header(http::field::pragma,          "no-cache");
-    resp.add_header(http::field::expires,         "0");
+    resp.headers.add(http::field::content_type,    http::get_mime_type(path));
+    resp.headers.add(http::field::cache_control,   "no-cache, no-store, must-revalidate, private, max-age=0");
+    resp.headers.add(http::field::pragma,          "no-cache");
+    resp.headers.add(http::field::expires,         "0");
     resp.content_file = std::move(file);
 }
 
 auto handle_authorization (const http::request& req, std::string_view username_exp, std::string_view passwd_exp)
 {       
-    auto field = req.find(http::field::authorization);
-    if (field == end(req.headers))
+    auto field = req.headers.find(http::field::authorization);
+    if (!field)
         return std::make_pair(false, "Missing Authorization field");
     
-    std::string_view  login_base64  = lskip(field->value, "Basic ");
+    std::string_view  login_base64  = lskip(*field, "Basic ");
     const auto        login         = http::base64_decode(login_base64);
 
     const auto [user, passwd] = split_once(std::string_view((const char*)&login[0], login.size()), ':');
@@ -468,7 +468,7 @@ int main(int argc, char* argv[])
                 {
                     reply.status = http::status_type::ok;
                     reply.content_str = read_next(fin0, 2000);
-                    reply.add_header(http::field::content_type, "text/plain");
+                    reply.headers.add(http::field::content_type, "text/plain");
                 }}
             },
 
