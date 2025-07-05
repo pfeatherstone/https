@@ -1,4 +1,6 @@
 #include <random>
+#include <ostream>
+#include <string_view>
 #include <http.h>
 #include "doctest.h"
 
