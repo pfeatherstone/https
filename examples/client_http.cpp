@@ -37,8 +37,11 @@ void print_header(const http::response& resp)
 {
     printf("Status : %u - %s\n", resp.status, status_label(resp.status).data());
     printf("Headers:\n");
-    for (const auto& [k,v] : resp.headers)
-        printf("\t%s : %s\n", field_label(k).data(), v.c_str());
+    for (size_t i{0} ; i < resp.headers.size() ; ++i)
+    {
+        const auto [k,v] = resp.headers[i];
+        printf("\t%s : %.*s\n", field_label(k).data(), (int)v.size(), v.data());
+    }
 }
 
 void print_json_body(const http::response& resp)
@@ -65,8 +68,8 @@ awaitable_strand http_session(std::string_view host)
         // Prepare request
         req.verb   = http::METHOD_GET;
         req.uri    = "/get";
-        req.add_header(http::host, host); // mandatory in HTTP/1.1 in request messages
-        req.add_header(http::user_agent, "Boost::asio " + std::to_string(BOOST_ASIO_VERSION)); // optional header
+        req.headers.add(http::host, host); // mandatory in HTTP/1.1 in request messages
+        req.headers.add(http::user_agent, "Boost::asio " + std::to_string(BOOST_ASIO_VERSION)); // optional header
 
         // Async IO
         co_await boost::asio::async_connect(sock.next_layer(), co_await resolver.async_resolve(host, "80"), boost::asio::cancel_after(5s, deferred));
@@ -75,7 +78,7 @@ awaitable_strand http_session(std::string_view host)
 
         // Print response
         print_header(resp);
-        if (auto it = resp.find(http::content_type); it != end(resp.headers) && it->contains_value("application/json"))
+        if (auto it = resp.headers.find(http::content_type); it && it->find("application/json") != size_t(-1))
             print_json_body(resp);   
     }
     catch(const boost::system::system_error& e)

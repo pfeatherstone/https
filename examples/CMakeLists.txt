@@ -45,9 +45,10 @@ add_executable_coro(client_ws_coro    ${CMAKE_CURRENT_SOURCE_DIR}/client_ws_coro
 # Unit tests
 add_executable(tests
   unit_tests/main.cpp
-  unit_tests/buffer.cpp
   unit_tests/base64.cpp
   unit_tests/sha1.cpp
+  unit_tests/buffer.cpp
+  unit_tests/headers.cpp
   unit_tests/message.cpp
   unit_tests/async.cpp)
 target_compile_features(tests PUBLIC cxx_std_20)

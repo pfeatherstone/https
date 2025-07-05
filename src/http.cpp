@@ -1,6 +1,7 @@
 #include <cassert>
 #include <cstring>
 #include <cctype>
+#include <charconv>
 #include <algorithm>
 #include <filesystem>
 #include <boost/asio/version.hpp>
@@ -845,6 +846,154 @@ namespace http
 
 //----------------------------------------------------------------------------------------------------------------
 
+    int find_header_private(const std::vector<field>& fields, field f)
+    {
+        for (size_t i = 0 ; i < fields.size() ; ++i)
+            if (fields[i] == f)
+                return i;
+        return -1;
+    }
+
+    void headers_container::clear()
+    {
+        buf.clear();
+        fields.clear();
+        offsets.clear();
+    }
+
+    size_t headers_container::size() const
+    {
+        return fields.size();
+    }
+
+    std::optional<std::string_view> headers_container::find(field f) const
+    {
+        const auto index = find_header_private(fields, f);
+        if (index == -1) return std::nullopt;
+        const auto off = offsets[index];
+        const auto end = (index+1) < fields.size() ? offsets[index+1] : buf.size();
+        return std::string_view(&buf[off], end-off);
+    }
+
+    void headers_container::add(field f, std::string_view value)
+    {
+        const size_t off = buf.size();
+        buf.insert(end(buf), begin(value), end(value));
+        fields.push_back(f);
+        offsets.push_back(off);
+    }
+
+    void headers_container::remove(field f)
+    {
+        const auto index = find_header_private(fields, f);
+        if (index == -1) return;
+        const auto off = offsets[index];
+        const auto end = (index+1) < fields.size() ? offsets[index+1] : buf.size();
+        const auto len = end-off;
+        for (size_t i = index+1 ; i < offsets.size() ; ++i)
+            offsets[i] -= len;
+        offsets.erase(begin(offsets) + index);
+        fields.erase(begin(fields) + index);
+        buf.erase(begin(buf) + off, begin(buf) + end);
+    }
+
+    void headers_container::modify(field f, std::string_view value)
+    {
+        const auto index = find_header_private(fields, f);
+        if (index == -1) return add(f, value);
+        const auto off = offsets[index];
+        const auto end = (index+1) < fields.size() ? offsets[index+1] : buf.size();
+        const auto len = end-off;
+        buf.erase(begin(buf) + off, begin(buf) + end);
+        buf.insert(begin(buf) + off, begin(value), std::end(value));
+        const auto len2 = value.size();
+        for (size_t i = index+1 ; i < offsets.size() ; ++i)
+            offsets[i] = (offsets[i] + len2) - len;
+    }
+
+    auto headers_container::operator[](const size_t i) const -> std::pair<field, std::string_view>
+    {
+        assert(i < size());
+        const auto off = offsets[i];
+        const auto end = (i+1) < fields.size() ? offsets[i+1] : buf.size();
+        return std::make_pair(fields[i], std::string_view(&buf[off], end-off));
+    }
+
+//----------------------------------------------------------------------------------------------------------------
+    
+    auto contains(std::string_view str, std::string_view value)
+    {
+        return str.find(value) != std::string_view::npos;
+    }
+
+    auto is_websocket_message(const headers_container& h)
+    {
+        auto conn_field     = h.find(field::connection);
+        auto upgrade_field  = h.find(field::upgrade);
+
+        return conn_field.has_value()       && 
+               upgrade_field.has_value()    &&
+               (contains(*conn_field, "Upgrade")      || contains(*conn_field, "upgrade")) &&
+               (contains(*upgrade_field, "Websocket") || contains(*upgrade_field, "websocket"));
+    };
+
+//----------------------------------------------------------------------------------------------------------------
+
+    void request::clear()
+    {
+        verb = METHOD_UNKNOWN;
+        version = {};
+        uri.clear();
+        params.clear();
+        headers.clear();
+        content.clear();
+    }
+
+    bool request::keep_alive() const
+    {
+        auto conn = headers.find(field::connection);
+
+        if (conn)
+        {
+            if (contains(*conn, "keep-alive") || contains(*conn, "Keep-Alive"))
+                return true;
+
+            else if (contains(*conn, "Close") || contains(*conn, "close"))
+                return false;
+        }
+
+        // HTTP 1.1 - default is to keep open otherwise default is to close
+        return version == HTTP_1_1;
+    }
+
+    bool request::is_websocket_req() const
+    {
+        return is_websocket_message(headers);
+    }
+
+//----------------------------------------------------------------------------------------------------------------
+
+    void response::clear()
+    {
+        status  = unknown;
+        version = {};
+        headers.clear();
+        content_str.clear();
+        content_file.reset();
+    }   
+    
+    void response::keep_alive(bool keep_alive_)
+    {
+        headers.add(field::connection, keep_alive_ ? "keep-alive" : "close");
+    }
+
+    bool response::is_websocket_response() const
+    {
+        return is_websocket_message(headers);
+    }
+
+//----------------------------------------------------------------------------------------------------------------
+    
     static char from_hex(char ch) {return std::isdigit(ch) ? ch - '0' : std::tolower(ch) - 'a' + 10;}
     static char to_hex(char code) {constexpr char hex[] = "0123456789abcdef";  return hex[code & 15];}
 
@@ -889,8 +1038,6 @@ namespace http
         return ret;
     }
 
-//----------------------------------------------------------------------------------------------------------------
-
     void parse_url(std::string_view url, std::string& target, std::vector<query_param>& params, std::error_code& ec)
     {
         // Find target
@@ -926,115 +1073,6 @@ namespace http
 
         if (!ec)
             extract_kv(url.substr(pos));  
-    }
-
-//----------------------------------------------------------------------------------------------------------------
-
-    bool header::contains_value(std::string_view v) const
-    {
-        return value.find(v) != std::string_view::npos;
-    }
-
-//----------------------------------------------------------------------------------------------------------------
-    
-    constexpr auto find_field = [] (auto&& headers, const field f)
-    {
-        return std::find_if(begin(headers), end(headers), [=](const auto& hdr) {return hdr.key == f;});
-    };
-
-    constexpr auto remove_field = [] (auto& headers, const field f)
-    {
-        headers.erase(std::remove_if(begin(headers), end(headers), [=](const auto& hdr) {return hdr.key == f;}), end(headers));
-    };
-
-    constexpr auto contains = [] (auto&& headers, const field f)
-    {
-        return find_field(headers, f) != end(headers);
-    };
-
-    constexpr auto is_websocket_message = [](const auto& headers)
-    {
-        auto conn_field     = find_field(headers, field::connection);
-        auto upgrade_field  = find_field(headers, field::upgrade);
-
-        return conn_field    != end(headers) && 
-               upgrade_field != end(headers) &&
-               (conn_field->contains_value("Upgrade")      || conn_field->contains_value("upgrade")) &&
-               (upgrade_field->contains_value("Websocket") || upgrade_field->contains_value("websocket"));
-    };
-
-//----------------------------------------------------------------------------------------------------------------
-
-    void request::clear()
-    {
-        uri.clear();
-        headers.clear();
-        content.clear();
-        version = {};
-        verb = METHOD_UNKNOWN;
-    }
-
-    void request::add_header(field f, std::string_view value)
-    {
-        headers.push_back({f, std::string(value)});
-    }
-
-    auto request::find(field f) const -> std::vector<header>::const_iterator
-    {
-        return find_field(headers, f);
-    }
-
-    bool request::keep_alive() const
-    {
-        auto it = find(field::connection);
-
-        if (it != end(headers))
-        {
-            if (it->contains_value("keep-alive") || it->contains_value("Keep-Alive"))
-                return true;
-
-            else if (it->contains_value("Close") || it->contains_value("close"))
-                return false;
-        }
-
-        // HTTP 1.1 - default is to keep open otherwise default is to close
-        return version == HTTP_1_1;
-    }
-
-    bool request::is_websocket_req() const
-    {
-        return is_websocket_message(headers);
-    }
-
-//----------------------------------------------------------------------------------------------------------------
-
-    void response::clear()
-    {
-        status  = unknown;
-        version = {};
-        headers.clear();
-        content_str.clear();
-        content_file.reset();
-    }   
-    
-    void response::add_header(field f, std::string_view value)
-    {
-        headers.push_back({f, std::string(value)});
-    }
-
-    auto response::find(field f) const -> std::vector<header>::const_iterator
-    {
-        return find_field(headers, f);
-    }
-
-    void response::keep_alive(bool keep_alive_)
-    {
-        add_header(field::connection, keep_alive_ ? "keep-alive" : "close");
-    }
-
-    bool response::is_websocket_response() const
-    {
-        return is_websocket_message(headers);
     }
 
 //----------------------------------------------------------------------------------------------------------------
@@ -1231,15 +1269,16 @@ namespace http
                             if (field == unknown_field)
                                 ec = make_error_code(http_read_header_unsupported_field);
                             else
-                                msg.add_header(field, value);
+                                msg.headers.add(field, value);
                         }
                     }
 
                     // End of header - found \r\n\r\n
                     else
                     {
-                        const auto it               = msg.find(field::content_length);
-                        const size_t content_size   = it != msg.headers.end() ? std::stoul(it->value) : 0;
+                        const auto it = msg.headers.find(field::content_length);
+                        size_t content_size{0};
+                        if (it) std::from_chars(it->data(), it->data() + it->size(), content_size);
 
                         // Read body
                         if (content_size > 0)
@@ -1285,48 +1324,40 @@ namespace http
 
     const auto handle_empty = [](auto& msg)
     {
-        remove_field(msg.headers, field::content_type);
-        remove_field(msg.headers, field::content_length);
+        msg.headers.remove(field::content_type);
+        msg.headers.remove(field::content_length);
     };
 
     const auto handle_content = [](auto& msg, const std::string& content)
     {
         // Add default Content type if empty
-        if (!contains(msg.headers, field::content_type))
-            msg.add_header(field::content_type, "text/plain");
+        if (!msg.headers.find(field::content_type))
+            msg.headers.add(field::content_type, "text/plain");
         
         // Set Content length
-        auto it = find_field(msg.headers, field::content_length);
-        if (it == end(msg.headers))
-            msg.add_header(field::content_length, std::to_string(content.size()));
-        else
-            it->value = std::to_string(content.size());     
+        msg.headers.modify(field::content_length, std::to_string(content.size()));
     };
 
     const auto handle_file = [](auto& msg)
     {
         // Content type - assume it's already set
-        if (!contains(msg.headers, field::content_type))
+        if (!msg.headers.find(field::content_type))
             fprintf(stderr, "Content-Type is not set for file\n");
 
         // Content length
         fseek(msg.content_file.get(), 0, SEEK_END);
         const size_t file_size = ftell(msg.content_file.get());
         fseek(msg.content_file.get(), 0, SEEK_SET);
-
-        auto it = find_field(msg.headers, field::content_length);
-        if (it == end(msg.headers))
-            msg.add_header(field::content_length, std::to_string(file_size));
-        else
-            it->value = std::to_string(file_size);
+        msg.headers.modify(field::content_length, std::to_string(file_size));
     };
 
     const auto serialize_header_final = [](auto& msg, std::string_view start_line, std::string& buf)
     {
         buf.append(start_line);
 
-        for (const auto& [k, v] : msg.headers)
+        for (size_t i = 0 ; i < msg.headers.size() ; ++i)
         {
+            const auto[k,v] = msg.headers[i];
             buf.append(field_label(k));
             buf.append(": ");
             buf.append(v);
@@ -1351,7 +1382,7 @@ namespace http
         }
 
         // HTTP requests require "host" field
-        if (!contains(req.headers, field::host))
+        if (!req.headers.find(field::host))
         {
             ec = make_error_code(http::http_write_request_missing_host);
             return;
@@ -1381,8 +1412,8 @@ namespace http
         status_str.resize(status_len);
 
         // Add default connection string if empty
-        if (!contains(req.headers, field::connection))
-            req.add_header(field::connection, "close");
+        if (!req.headers.find(field::connection))
+            req.headers.add(field::connection, "close");
 
         // Handle empty body
         if (req.content.empty())
@@ -1409,12 +1440,12 @@ namespace http
         snprintf(status_str, sizeof(status_str), "HTTP/1.%i %i %s\r\n", (int)resp.version, resp.status, status_label(resp.status).data());
 
         // Add default server string if empty
-        if (!contains(resp.headers, field::server))
-            resp.add_header(field::server, "Boost::asio " + std::to_string(BOOST_ASIO_VERSION));
+        if (!resp.headers.find(field::server))
+            resp.headers.add(field::server, "Boost::asio " + std::to_string(BOOST_ASIO_VERSION));
 
         // Add default connection string if empty
-        if (!contains(resp.headers, field::connection))
-            resp.add_header(field::connection, "close");
+        if (!resp.headers.find(field::connection))
+            resp.headers.add(field::connection, "close");
 
         // Handle empty body
         if (resp.content_str.empty() && resp.content_file == nullptr)

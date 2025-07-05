@@ -4,6 +4,7 @@
 #include <string_view>
 #include <vector>
 #include <array>
+#include <optional>
 #include <memory>
 #include <system_error>
 #include <boost/asio/buffer.hpp>
@@ -566,11 +567,21 @@ namespace http
 
 //----------------------------------------------------------------------------------------------------------------
 
-    struct header
+    class headers_container
     {
-        field       key;
-        std::string value;
-        bool contains_value(std::string_view v) const;
+    private:
+        std::vector<char>   buf;
+        std::vector<field>  fields;
+        std::vector<size_t> offsets;
+
+    public:
+        size_t size() const;
+        void clear();
+        auto find(field f) const -> std::optional<std::string_view>;
+        void remove(field f);
+        void add(field f, std::string_view value);
+        void modify(field f, std::string_view value);
+        auto operator[](const size_t i) const -> std::pair<field, std::string_view>;
     };
 
 //----------------------------------------------------------------------------------------------------------------
@@ -581,12 +592,10 @@ namespace http
         http_version                version{HTTP_1_1};
         std::string                 uri;
         std::vector<query_param>    params;
-        std::vector<header>         headers;
+        headers_container           headers;
         std::string                 content;
 
         void clear();
-        void add_header(field f, std::string_view value);
-        auto find(field f) const -> std::vector<header>::const_iterator;
         bool keep_alive() const;
         bool is_websocket_req() const;
     };
@@ -597,13 +606,11 @@ namespace http
     {
         status_type         status{unknown};
         http_version        version{HTTP_1_1};
-        std::vector<header> headers;
+        headers_container   headers;
         std::string         content_str;
         file_ptr            content_file;
 
         void clear();
-        void add_header(field f, std::string_view value);
-        auto find(field f) const -> std::vector<header>::const_iterator;
         void keep_alive(bool keep_alive_);
         bool is_websocket_response() const;
     };
