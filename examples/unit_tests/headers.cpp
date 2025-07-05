@@ -4,9 +4,9 @@
 
 const auto random_string = [](auto& eng, size_t len)
 {
-    std::uniform_int_distribution<char> d(48, 126);
+    std::uniform_int_distribution<int> d(48, 126);
     std::string str(len, '\0');
-    for (auto& c : str) c = d(eng);
+    for (auto& c : str) c = static_cast<char>(d(eng));
     return str;
 };
 
