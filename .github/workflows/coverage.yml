@@ -36,18 +36,17 @@ jobs:
       - name: Run fuzzers
         run: |
           mkdir -p /tmp/corpus
-          ./build/request_parser /tmp/corpus/ seeds/request_parser/ -max_total_time=30
+          LLVM_PROFILE_FILE="default.profraw" ./build/request_parser /tmp/corpus/ seeds/request_parser/ -max_total_time=30
 
       - name: Generate coverage report
         run: |
           llvm-profdata merge -sparse default.profraw -o default.profdata
-          llvm-cov show ./build/request_parser \
-            -instr-profile=default.profdata \
-            -format=html \
-            -output-dir=coverage-report
     
-      - name: Upload coverage report as artifact
-        uses: actions/upload-artifact@v4
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
         with:
-          name: coverage-report
-          path: coverage-report
+            files: default.profdata
+            flags: fuzzer
+            name: codecov-coverage
+            fail_ci_if_error: true
+            verbose: true

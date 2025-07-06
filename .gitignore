@@ -3,3 +3,4 @@
 **/default.profraw
 **/default.profdata
 **/fuzzer.profdata
+**/seeds/**
