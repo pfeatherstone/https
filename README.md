@@ -49,14 +49,14 @@ Note, the example server is single threaded, uses C++20 coroutines and basic aut
 
 | Transport | Connections | Requests / s |
 | --------- | ----------- | -------------|
-| TCP       | 1           | 46343.67     |
-| TCP       | 2           | 84973.53     |
-| TCP       | 5           | 101081.90    |
-| TCP       | 10          | 108060.56    |
-| TLS       | 1           | 32172.07     |
-| TLS       | 2           | 58033.97     |
-| TLS       | 5           | 67345.94     |
-| TLS       | 10          | 69167.37     |
+| TCP       | 1           | 49299.87     |
+| TCP       | 2           | 86850.14     |
+| TCP       | 5           | 102857.48    |
+| TCP       | 10          | 111504.62    |
+| TLS       | 1           | 33671.01     |
+| TLS       | 2           | 62024.36     |
+| TLS       | 5           | 70269.52     |
+| TLS       | 10          | 78444.07     |
 
 Not bad.
 
