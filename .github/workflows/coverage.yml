@@ -1,0 +1,51 @@
+name: Coverage
+on:
+  push:
+    branches:
+      - '**'
+  pull_request:
+    branches:
+      - '**'
+
+jobs:
+  build-test:
+    runs-on: ubuntu-24.04
+    name: ubuntu-coverage
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y ninja-build cmake clang llvm
+
+      - name: Run CMake configuration and build
+        run: |
+          cmake examples -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DCMAKE_C_COMPILER=clang \
+            -DCMAKE_CXX_COMPILER=clang++ \
+            -DHTTP_BUILD_FUZZERS=ON
+          cmake --build build --target request_parser --parallel
+
+      - name: Extract corpus
+        run: |
+          
+      - name: Run fuzzers
+        run: |
+          ./build/RelWithDebInfo/request_parser /tmp/corpus/ examples/fuzz/seeds/request_parser/ -max_total_time=30
+
+      - name: Generate coverage report
+        run: |
+          llvm-profdata merge -sparse default.profraw -o default.profdata
+          llvm-cov show ./build/RelWithDebInfo/request_parser \
+            -instr-profile=default.profdata \
+            -format=html \
+            -output-dir=coverage-report
+    
+      - name: Upload coverage report as artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: coverage-report
+          path: coverage-report

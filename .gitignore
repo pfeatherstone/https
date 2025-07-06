@@ -1,2 +1,5 @@
 **/build
 **/.vscode
+**/default.profraw
+**/default.profdata
+**/fuzzer.profdata

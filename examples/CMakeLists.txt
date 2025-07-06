@@ -1,6 +1,9 @@
 cmake_minimum_required(VERSION 3.13)
 project(Http)
 
+# Helpers
+set(IS_CLANG "$<CXX_COMPILER_ID:Clang>")
+
 # Deps
 include(FetchContent)
 find_package(Threads REQUIRED)
@@ -17,11 +20,15 @@ FetchContent_Declare(
   URL_HASH MD5=3edffaacd2cfe63c240ef1b99497c74f)
 FetchContent_MakeAvailable(Boost)
 
+# Options
+option(HTTP_BUILD_FUZZERS "Builds Fuzz tests (requires clang)" OFF)
+
 # Lib
 add_library(http ${CMAKE_CURRENT_SOURCE_DIR}/../src/http.cpp)
 target_compile_features(http PUBLIC cxx_std_17)
 target_include_directories(http PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../src)
 target_link_libraries(http PUBLIC OpenSSL::SSL OpenSSL::Crypto Boost::asio)
+target_compile_options(http PRIVATE $<$<AND:${IS_CLANG},$<BOOL:${HTTP_BUILD_FUZZERS}>>:-fprofile-instr-generate -fcoverage-mapping>)
 
 # Examples
 function(add_executable_20 target_name)
@@ -55,3 +62,15 @@ target_compile_features(tests PUBLIC cxx_std_20)
 target_link_options(tests PRIVATE $<$<CONFIG:Release>:-s>)
 target_include_directories(tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/extra)
 target_link_libraries(tests PRIVATE http)
+
+# Fuzz tests
+if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND HTTP_BUILD_FUZZERS)
+  function(add_fuzz target_name)
+    add_executable(${target_name} ${ARGN})
+    target_link_libraries(${target_name} PRIVATE http)
+    target_compile_options(${target_name} PRIVATE -fprofile-instr-generate -fcoverage-mapping)
+    target_link_options(${target_name} PRIVATE -fsanitize=fuzzer -fprofile-instr-generate -fcoverage-mapping)
+  endfunction()
+
+  add_fuzz(request_parser fuzz/request_parser.cpp)
+endif()
