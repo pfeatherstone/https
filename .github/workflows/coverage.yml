@@ -31,15 +31,17 @@ jobs:
 
       - name: Extract corpus
         run: |
+          tar -zxvf examples/fuzz/seeds.tgz
           
       - name: Run fuzzers
         run: |
-          ./build/RelWithDebInfo/request_parser /tmp/corpus/ examples/fuzz/seeds/request_parser/ -max_total_time=30
+          mkdir -p /tmp/corpus
+          ./build/request_parser /tmp/corpus/ seeds/request_parser/ -max_total_time=30
 
       - name: Generate coverage report
         run: |
           llvm-profdata merge -sparse default.profraw -o default.profdata
-          llvm-cov show ./build/RelWithDebInfo/request_parser \
+          llvm-cov show ./build/request_parser \
             -instr-profile=default.profdata \
             -format=html \
             -output-dir=coverage-report
