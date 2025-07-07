@@ -41,9 +41,14 @@ jobs:
       - name: Generate coverage report
         run: |
           llvm-profdata merge -sparse default.profraw -o default.profdata
-    
+          llvm-cov export -format=lcov -instr-profile default.profdata \
+            -object ./build/request_parser \
+            -sources ./src \
+            > coverage_${{github.sha}}.txt
+  
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           slug: pfeatherstone/https
+          files: coverage_${{github.sha}}.txt
