@@ -34,23 +34,21 @@ target_link_libraries(http PUBLIC OpenSSL::SSL OpenSSL::Crypto Boost::asio)
 target_compile_options(http PRIVATE $<$<BOOL:${HTTP_BUILD_FUZZERS}>:-fprofile-instr-generate -fcoverage-mapping>)
 
 # Examples
-function(add_executable_20 target_name)
-  add_executable(${target_name} ${ARGN})
-  target_compile_features(${target_name} PUBLIC cxx_std_20)
-  target_link_options(${target_name} PUBLIC $<$<CONFIG:Release>:-s>)
-  target_link_libraries(${target_name} PUBLIC Threads::Threads http)
-endfunction()
-
-function(add_executable_coro target_name)
+function(add_example target_name)
   add_executable(${target_name} ${ARGN})
   target_link_options(${target_name} PRIVATE $<$<CONFIG:Release>:-s>)
   target_link_libraries(${target_name} PRIVATE Threads::Threads Boost::compat http)
 endfunction()
 
-add_executable_20(server              ${CMAKE_CURRENT_SOURCE_DIR}/server.cpp)
-add_executable_20(client_http         ${CMAKE_CURRENT_SOURCE_DIR}/client_http.cpp ${CMAKE_CURRENT_SOURCE_DIR}/extra/yyjson.c)
-add_executable_20(client_ws_awaitable ${CMAKE_CURRENT_SOURCE_DIR}/client_ws_awaitable.cpp)
-add_executable_coro(client_ws_coro    ${CMAKE_CURRENT_SOURCE_DIR}/client_ws_coro.cpp)
+function(add_example_20 target_name)
+  add_example(${target_name} ${ARGN})
+  target_compile_features(${target_name} PUBLIC cxx_std_20)
+endfunction()
+
+add_example_20(server              ${CMAKE_CURRENT_SOURCE_DIR}/server.cpp)
+add_example_20(client_http         ${CMAKE_CURRENT_SOURCE_DIR}/client_http.cpp ${CMAKE_CURRENT_SOURCE_DIR}/extra/yyjson.c)
+add_example_20(client_ws_awaitable ${CMAKE_CURRENT_SOURCE_DIR}/client_ws_awaitable.cpp)
+add_example(client_ws_coro         ${CMAKE_CURRENT_SOURCE_DIR}/client_ws_coro.cpp)
 
 # Unit tests
 add_executable(tests
@@ -75,5 +73,6 @@ if (HTTP_BUILD_FUZZERS)
     target_link_options(${target_name} PRIVATE -fsanitize=fuzzer -fprofile-instr-generate -fcoverage-mapping)
   endfunction()
 
-  add_fuzz(request_parser fuzz/request_parser.cpp)
+  add_fuzz(request_parser  fuzz/request_parser.cpp)
+  add_fuzz(response_parser fuzz/response_parser.cpp)
 endif()

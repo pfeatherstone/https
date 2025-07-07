@@ -36,13 +36,17 @@ jobs:
       - name: Run fuzzers
         run: |
           mkdir -p /tmp/corpus
-          LLVM_PROFILE_FILE="default.profraw" ./build/request_parser /tmp/corpus/ seeds/request_parser/ -max_total_time=30
+          LLVM_PROFILE_FILE="request.profraw" ./build/request_parser /tmp/corpus/ seeds/request_parser/ -max_total_time=30
+          LLVM_PROFILE_FILE="response.profraw" ./build/response_parser /tmp/corpus/ seeds/response_parser/ -max_total_time=30
 
       - name: Generate coverage report
         run: |
-          llvm-profdata merge -sparse default.profraw -o default.profdata
-          llvm-cov export -format=lcov -instr-profile default.profdata \
+          llvm-profdata merge -o coverage.profdata \
+            request.profraw \
+            response.profraw
+          llvm-cov export -format=lcov -instr-profile coverage.profdata \
             -object ./build/request_parser \
+            -object ./build/response_parser \
             -sources ./src \
             > coverage_${{github.sha}}.txt
   
