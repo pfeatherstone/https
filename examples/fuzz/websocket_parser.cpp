@@ -17,5 +17,9 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size)
     ws_parser.parse(msg, buf, ec);
     const auto opcode       = ws_parser.get_opcode();
     const auto is_server    = ws_parser.is_server();
+
+    msg.assign(data, data+size);
+    buf.clear();
+    http::serialize_websocket_message(boost::asio::buffer(msg), http::WS_OPCODE_DATA_BINARY, true, buf);
     return 0;
 }
