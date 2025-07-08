@@ -27,7 +27,7 @@ jobs:
             -DCMAKE_C_COMPILER=clang \
             -DCMAKE_CXX_COMPILER=clang++ \
             -DHTTP_BUILD_FUZZERS=ON
-          cmake --build build --target request_parser response_parser sha1 --parallel
+          cmake --build build --target request_parser response_parser sha1 base64 --parallel
 
       - name: Extract corpus
         run: |
