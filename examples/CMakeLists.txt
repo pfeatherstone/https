@@ -75,4 +75,5 @@ if (HTTP_BUILD_FUZZERS)
 
   add_fuzz(request_parser  fuzz/request_parser.cpp)
   add_fuzz(response_parser fuzz/response_parser.cpp)
+  add_fuzz(sha1            fuzz/sha1.cpp)
 endif()

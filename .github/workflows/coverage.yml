@@ -27,7 +27,7 @@ jobs:
             -DCMAKE_C_COMPILER=clang \
             -DCMAKE_CXX_COMPILER=clang++ \
             -DHTTP_BUILD_FUZZERS=ON
-          cmake --build build --target request_parser response_parser --parallel
+          cmake --build build --target request_parser response_parser sha1 --parallel
 
       - name: Extract corpus
         run: |
@@ -36,17 +36,20 @@ jobs:
       - name: Run fuzzers
         run: |
           mkdir -p /tmp/corpus
-          LLVM_PROFILE_FILE="request.profraw" ./build/request_parser /tmp/corpus/ seeds/request_parser/ -max_total_time=30
-          LLVM_PROFILE_FILE="response.profraw" ./build/response_parser /tmp/corpus/ seeds/response_parser/ -max_total_time=30
+          LLVM_PROFILE_FILE="request.profraw"   ./build/request_parser /tmp/corpus/ seeds/request_parser/ -max_total_time=30
+          LLVM_PROFILE_FILE="response.profraw"  ./build/response_parser /tmp/corpus/ seeds/response_parser/ -max_total_time=30
+          LLVM_PROFILE_FILE="sha1.profraw"      ./build/sha1 -max_total_time=30
 
       - name: Generate coverage report
         run: |
           llvm-profdata merge -o coverage.profdata \
             request.profraw \
-            response.profraw
+            response.profraw \
+            sha1.profraw
           llvm-cov export -format=lcov -instr-profile coverage.profdata \
             -object ./build/request_parser \
             -object ./build/response_parser \
+            -object ./build/sha1 \
             -sources ./src \
             > coverage_${{github.sha}}.txt
   
