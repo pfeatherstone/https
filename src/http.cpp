@@ -19,14 +19,6 @@ namespace http
         return static_cast<uint16_t>(((v & 0x00FF) << 8) | ((v & 0xFF00) >> 8));
     }
 
-    constexpr uint32_t byte_swap32(uint32_t v)
-    {
-        return static_cast<uint32_t>(((v & 0x000000FF) << 24) |
-                                    ((v & 0x0000FF00) << 8)  |
-                                    ((v & 0x00FF0000) >> 8)  |
-                                    ((v & 0xFF000000) >> 24));
-    }
-
     constexpr uint64_t byte_swap64(uint64_t v)
     {
         return static_cast<uint64_t>(((v & 0x00000000000000FFULL) << 56) |
@@ -40,7 +32,6 @@ namespace http
     }
 
     static_assert(byte_swap16(0x1234)               == 0x3412,              "bad swap");
-    static_assert(byte_swap32(0x12345678)           == 0x78563412,          "bad swap");
     static_assert(byte_swap64(0x123456789abcdef1)   == 0xf1debc9a78563412,  "bad swap");
 
 //----------------------------------------------------------------------------------------------------------------
@@ -57,11 +48,6 @@ namespace http
     inline uint16_t host_to_b16(uint16_t v)
     {
         return is_little_endian() ? byte_swap16(v) : v;
-    }
-
-    inline uint32_t host_to_b32(uint32_t v)
-    {
-        return is_little_endian() ? byte_swap32(v) : v;
     }
 
     inline uint64_t host_to_b64(uint64_t v)
