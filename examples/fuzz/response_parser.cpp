@@ -12,8 +12,8 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size)
     buf.clear();
     ec = {};
     http::serialize_header(resp, buf, ec);
-    resp.clear();
     resp.keep_alive(true);
     bool is_websocket = resp.is_websocket_response();
+    resp.clear();
     return 0;
 }

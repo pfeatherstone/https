@@ -9,11 +9,11 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size)
     std::error_code ec{};
     http::parser<http::request> parser;
     parser.parse(req, buf, ec);
+    bool is_keep_alive    = req.keep_alive();
+    bool is_websocket_req = req.is_websocket_req();
     buf.clear();
     ec = {};
     http::serialize_header(req, buf, ec);
     req.clear();
-    bool is_keep_alive = req.keep_alive();
-    bool is_websocket_req = req.is_websocket_req();
     return 0;
 }
