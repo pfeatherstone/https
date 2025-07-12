@@ -11,6 +11,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size)
     parser.parse(resp, buf, ec);
     buf.clear();
     std::string ec_msg = ec ? ec.message() : "";
+    const auto& ec_cat = ec.category();
     ec = {};
     http::serialize_header(resp, buf, ec);
     resp.keep_alive(true);

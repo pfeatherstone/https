@@ -12,6 +12,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size)
     bool is_keep_alive    = req.keep_alive();
     bool is_websocket_req = req.is_websocket_req();
     std::string ec_msg = ec ? ec.message() : "";
+    const auto& ec_cat = ec.category();
     buf.clear();
     ec = {};
     http::serialize_header(req, buf, ec);
