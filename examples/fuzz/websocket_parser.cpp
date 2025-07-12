@@ -11,6 +11,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size)
     http::parser_request parser;
     parser.parse(req, buf, ec);
     bool is_websocket_req = req.is_websocket_req();
+    std::string ec_msg = ec ? ec.message() : "";
 
     std::vector<char> msg;
     http::dynamic_buffer view(msg);
@@ -21,6 +22,8 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size)
     const auto current_size = view.size();
     const auto current_data = view.data();
     const auto current_buf  = view.buffer();
+    ec_msg = ec ? ec.message() : "";
+    
     view.resize(10);
     view.clear();
     msg.assign(data, data+size);
