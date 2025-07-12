@@ -8,7 +8,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size)
 
     http::request   req{};
     std::error_code ec{};
-    http::parser<http::request> parser;
+    http::parser_request parser;
     parser.parse(req, buf, ec);
     bool is_websocket_req = req.is_websocket_req();
 

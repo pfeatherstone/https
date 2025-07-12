@@ -7,7 +7,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size)
     std::string      buf(reinterpret_cast<const char*>(data), size);
     http::response   resp{};
     std::error_code  ec{};
-    http::parser<http::response> parser;
+    http::parser_response parser;
     parser.parse(resp, buf, ec);
     buf.clear();
     ec = {};

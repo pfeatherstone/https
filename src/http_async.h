@@ -168,12 +168,12 @@ namespace http
 
 //----------------------------------------------------------------------------------------------------------------
    
-        template<class Sock, class Message>
+        template<class Sock, class Message, class Parser>
         struct async_http_read_impl
         {
             stream<Sock>&   sock;
             Message&        msg;
-            parser<Message> parser_;
+            Parser          parser_;
             size_t          total_read{0};
             size_t          buf_off{0};
 
@@ -232,7 +232,7 @@ namespace http
     )
     {
         return boost::asio::async_compose<CompletionToken, void(boost::system::error_code, std::size_t)> (
-            details::async_http_read_impl{sock, req},
+            details::async_http_read_impl<Sock, request, parser_request>{sock, req},
             token, sock
         );
     }
@@ -250,7 +250,7 @@ namespace http
     )
     {
         return boost::asio::async_compose<CompletionToken, void(boost::system::error_code, std::size_t)> (
-            details::async_http_read_impl{sock, resp},
+            details::async_http_read_impl<Sock, response, parser_response>{sock, resp},
             token, sock
         );
     }

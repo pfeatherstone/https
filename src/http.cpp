@@ -1024,6 +1024,8 @@ namespace http
         return ret;
     }
 
+//----------------------------------------------------------------------------------------------------------------
+    
     void parse_url(std::string_view url, std::string& target, std::vector<query_param>& params, std::error_code& ec)
     {
         // Find target
@@ -1071,8 +1073,232 @@ namespace http
 
 //----------------------------------------------------------------------------------------------------------------
 
-    template<class Message>
-    bool parser<Message>::parse(Message& msg, std::string& buf, std::error_code& ec)
+    constexpr size_t max_header_size = 8192;
+
+    enum parsing_result
+    {
+        parse_incomplete,
+        parse_ok
+    };
+
+//----------------------------------------------------------------------------------------------------------------
+
+    const auto parse_method = [](request& req, std::string& buf, std::error_code& ec, auto cont)
+    {
+        constexpr std::size_t max_method_size{16};
+
+        parsing_result res{parse_incomplete};
+
+        // Sufficient data
+        if (buf.size() >= max_method_size)
+        {
+            std::string_view method_str(&buf[0], max_method_size);
+            const auto      end     = method_str.find(' ');
+            const verb_type method  = verb_enum(method_str.substr(0, end));
+            
+            // Valid
+            if (method != METHOD_UNKNOWN)
+            {
+                req.verb = method;
+                buf.erase(begin(buf), begin(buf) + end + 1);
+                cont();
+                res = parse_ok;
+            }
+
+            // Not valid
+            else
+                ec = make_error_code(http_read_bad_method);
+        }
+        
+        return res;    
+    };
+
+//----------------------------------------------------------------------------------------------------------------
+
+    const auto parse_uri = [](request& req, std::string& buf, std::error_code& ec, auto cont)
+    {
+        parsing_result res{parse_incomplete};
+
+        auto* end = strchr(&buf[0], ' ');
+
+        if (end != nullptr)
+        {
+            const size_t len = std::distance(&buf[0], end);
+            parse_url(std::string_view(&buf[0],len), req.uri, req.params, ec);
+            buf.erase(begin(buf), begin(buf) + len + 1);
+            cont();
+            res = parse_ok;
+        }
+
+        return res;
+    };
+
+//----------------------------------------------------------------------------------------------------------------
+
+    const auto parse_version = [](auto& msg, std::string& buf, std::error_code& ec, auto cont)
+    {
+        using Message = std::remove_cv_t<std::remove_reference_t<decltype(msg)>>;
+        constexpr std::size_t http_size{8};
+        constexpr std::size_t tail_size = std::is_same_v<Message, request> ? 2 : 1;
+
+        parsing_result res{parse_incomplete};
+
+        // Sufficient data
+        if (buf.size() > 10)
+        {
+            buf[http_size] = '\0';
+            int major{-1};
+            int minor{-1};
+            const int ret = sscanf(&buf[0], "HTTP/%i.%i", &major, &minor);
+
+            // Valid 
+            if (ret == 2 && major == 1 && (minor == 0 || minor == 1))
+            { 
+                msg.version = (http_version)minor;
+                buf.erase(begin(buf), begin(buf) + http_size + tail_size);
+                cont();
+                res = parse_ok;
+            }
+
+            // Not valid
+            else
+                ec = make_error_code(http_read_unsupported_http_version);
+        }
+
+        return res;
+    };
+
+//----------------------------------------------------------------------------------------------------------------
+
+    const auto parse_status_code = [](response& msg, std::string& buf, std::error_code& ec, auto cont)
+    {
+        parsing_result res{parse_incomplete};
+
+        auto* end = strchr(&buf[0], ' ');
+
+        // Sufficient
+        if (end != nullptr)
+        {
+            const size_t len = std::distance(&buf[0], end);
+            *end = '\0';
+            int status{-1};
+            const int ret = sscanf(&buf[0], "%i", &status);
+
+            // Valid
+            if (ret == 1 && status >= (int)status_type::continue_ && status <= 1000)
+            {
+                msg.status = (status_type)status;
+                buf.erase(begin(buf), begin(buf) + len + 1);
+                cont();
+                res = parse_ok;
+            }
+            
+            // Not valid
+            else
+                ec = make_error_code(http_read_bad_status);
+        }
+
+        return res;
+    };
+
+//----------------------------------------------------------------------------------------------------------------
+
+    const auto parse_status_msg = [](response& msg, std::string& buf, std::error_code& ec, auto cont)
+    {
+        parsing_result res{parse_incomplete};
+
+        auto* end = strstr(&buf[0], "\r\n");
+
+        // Sufficient
+        if (end != nullptr)
+        {
+            buf.erase(begin(buf), begin(buf) + std::distance(&buf[0], end) + 2);
+            cont();
+            res = parse_ok;
+        }
+
+        return res;
+    };
+
+//----------------------------------------------------------------------------------------------------------------
+
+    const auto parse_header = [](auto& msg, std::string& buf, std::error_code& ec, auto cont)
+    {
+        using details::get_content;
+
+        parsing_result res{parse_incomplete};
+
+        auto* end = strstr(&buf[0], "\r\n");
+
+        // Sufficient
+        if (end != nullptr)
+        {
+            *end = '\0';
+            const size_t line_length = std::distance(&buf[0], end);
+
+            // Found header
+            if (line_length > 0)
+            {
+                auto* kend = strstr(&buf[0], ": ");
+
+                if (kend == nullptr)
+                    ec = make_error_code(http_read_header_kv_delimiter_not_found);
+
+                else
+                {
+                    for (auto* ptr = &buf[0] ; ptr != kend ; ++ptr)
+                        *ptr = fast_ascii_tolower(*ptr);
+
+                    auto field = field_enum(std::string_view(&buf[0], std::distance(&buf[0], kend)));
+                    auto value = std::string_view(kend+2, std::distance(kend+2, end));
+
+                    if (field == unknown_field)
+                        ec = make_error_code(http_read_header_unsupported_field);
+
+                    else
+                        msg.headers.add(field, value);
+                        res = parse_ok;
+                }
+            }
+
+            // End of header - found \r\n\r\n
+            else
+            {
+                const auto it = msg.headers.find(field::content_length);
+                size_t content_size{0};
+                if (it) std::from_chars(it->data(), it->data() + it->size(), content_size);
+                get_content(msg).resize(content_size);
+                cont();
+                res = parse_ok;
+            }
+
+            buf.erase(begin(buf), begin(buf) + line_length + 2);
+        }
+
+        return res;
+    };
+
+//----------------------------------------------------------------------------------------------------------------
+
+    const auto parse_body = [](auto& msg, std::string& buf, size_t& body_read, std::error_code& ec, auto cont)
+    {
+        using details::get_content;
+
+        const size_t remaining = get_content(msg).size() - body_read;
+        const size_t available = std::min(remaining, buf.size());
+        std::copy(begin(buf), begin(buf) + available, begin(get_content(msg)) + body_read);
+        buf.erase(begin(buf), begin(buf) + available);
+        body_read += available;
+            
+        if (get_content(msg).size() == body_read)
+            cont();
+
+        return parse_ok;
+    };
+
+//----------------------------------------------------------------------------------------------------------------
+
+    bool parser_request::parse(request& req, std::string& buf, std::error_code& ec)
     {
         using namespace details;
 
@@ -1082,229 +1308,59 @@ namespace http
             if (buf.size() > max_header_size)
                 ec = make_error_code(http_read_header_line_too_big);
 
-            // Start line method (Request only)
-            else if (state == method)
+            else
             {
-                constexpr std::size_t max_method_size{16};
+                parsing_result res{parse_incomplete};
 
-                // Sufficient data
-                if (buf.size() >= max_method_size)
+                switch(state)
                 {
-                    std::string_view method_str(&buf[0], max_method_size);
-                    const auto      end     = method_str.find(' ');
-                    const verb_type method  = verb_enum(method_str.substr(0, end));
-                    
-                    // Found
-                    if (method != METHOD_UNKNOWN)
-                    {
-                        if constexpr (std::is_same_v<Message, request>)
-                            msg.verb = method;
-                        
-                        state = uri;
-                        buf.erase(begin(buf), begin(buf) + end + 1);
-                    }
-
-                    // Not found
-                    else
-                        ec = make_error_code(http_read_bad_method);
-                }
+                case parser_request::method:        res = parse_method(req, buf, ec,  [&]{state = parser_request::uri;});           break;
+                case parser_request::uri:           res = parse_uri(req, buf, ec,     [&]{state = parser_request::version;});       break;
+                case parser_request::version:       res = parse_version(req, buf, ec, [&]{state = parser_request::header_line;});   break;
+                case parser_request::header_line:   res = parse_header(req, buf, ec,  [&]{state = !req.content.empty() ? parser_request::body : parser_request::done;}); break;
+                case parser_request::body:          res = parse_body(req, buf, body_read, ec, [&]{state = parser_request::done;});  break;
+                case parser_request::done: break;
+                }  
                 
-                // Insufficient
-                else
-                    break;                
-            }
-
-            // URI (Request only)
-            else if (state == uri)
-            {
-                auto* end = strchr(&buf[0], ' ');
-
-                // Found
-                if (end != nullptr)
-                {
-                    const size_t len = std::distance(&buf[0], end);
-                    if constexpr (std::is_same_v<Message, request>)
-                        parse_url(std::string_view(&buf[0],len), msg.uri, msg.params, ec);
-                    
-                    state = version;
-                    buf.erase(begin(buf), begin(buf) + len + 1);
-                }
-
-                // Not found
-                else
+                if (res == parse_incomplete)
                     break;
-            }
-
-            // HTTP version
-            else if (state == version)
-            {
-                constexpr std::size_t http_size{8};
-
-                // Sufficient data
-                if (buf.size() > 10)
-                {
-                    buf[http_size] = '\0';
-                    int major{-1};
-                    int minor{-1};
-                    const int ret = sscanf(&buf[0], "HTTP/%i.%i", &major, &minor);
-
-                    // Found 
-                    if (ret == 2 && major == 1 && (minor == 0 || minor == 1))
-                    {
-                        if constexpr (std::is_same_v<Message, request>)
-                        {
-                            state = header_line;
-                            buf.erase(begin(buf), begin(buf) + http_size + 2);
-                        }
-                            
-                        else
-                        {
-                            state = status_code;
-                            buf.erase(begin(buf), begin(buf) + http_size + 1);
-                        }
-                            
-                        msg.version = (http_version)minor;
-                    }
-
-                    // Not found
-                    else
-                        ec = make_error_code(http_read_unsupported_http_version);
-                }
-
-                // Insufficient
-                else
-                    break;
-            }
-
-            // Status code (response only)
-            else if (state == status_code)
-            {
-                auto* end = strchr(&buf[0], ' ');
-
-                // Sufficient
-                if (end != nullptr)
-                {
-                    const size_t len = std::distance(&buf[0], end);
-                    *end = '\0';
-                    int status{-1};
-                    const int ret = sscanf(&buf[0], "%i", &status);
-
-                    // Found
-                    if (ret == 1 && status >= (int)status_type::continue_ && status <= 1000)
-                    {
-                        if constexpr (std::is_same_v<Message, response>)
-                            msg.status = (status_type)status;
-                        state = status_msg;
-                        buf.erase(begin(buf), begin(buf) + len + 1);
-                    }
-                    
-                    // Not found
-                    else
-                        ec = make_error_code(http_read_bad_status);
-                }
-
-                // Insufficient
-                else
-                    break;
-            }
-
-            // Status label
-            else if (state == status_msg)
-            {
-                auto* end = strstr(&buf[0], "\r\n");
-
-                // Sufficient
-                if (end != nullptr)
-                {
-                    state = header_line;
-                    buf.erase(begin(buf), begin(buf) + std::distance(&buf[0], end) + 2);
-                }
-
-                // Insufficient
-                else
-                    break;
-            }
-
-            // Header line
-            else if (state == header_line)
-            {
-                auto* end = strstr(&buf[0], "\r\n");
-
-                // Sufficient
-                if (end != nullptr)
-                {
-                    *end = '\0';
-                    const size_t line_length = std::distance(&buf[0], end);
-
-                    // Found header
-                    if (line_length > 0)
-                    {
-                        auto* kend = strstr(&buf[0], ": ");
-
-                        if (kend == nullptr)
-                            ec = make_error_code(http_read_header_kv_delimiter_not_found);
-   
-                        else
-                        {
-                            for (auto* ptr = &buf[0] ; ptr != kend ; ++ptr)
-                                *ptr = fast_ascii_tolower(*ptr);
-
-                            auto field = field_enum(std::string_view(&buf[0], std::distance(&buf[0], kend)));
-                            auto value = std::string_view(kend+2, std::distance(kend+2, end));
-
-                            if (field == unknown_field)
-                                ec = make_error_code(http_read_header_unsupported_field);
-                            else
-                                msg.headers.add(field, value);
-                        }
-                    }
-
-                    // End of header - found \r\n\r\n
-                    else
-                    {
-                        const auto it = msg.headers.find(field::content_length);
-                        size_t content_size{0};
-                        if (it) std::from_chars(it->data(), it->data() + it->size(), content_size);
-
-                        // Read body
-                        if (content_size > 0)
-                        {
-                            state = body;
-                            get_content(msg).resize(content_size);
-                        }
-
-                        // Empty body
-                        else
-                            state = done;
-                    }
-
-                    buf.erase(begin(buf), begin(buf) + line_length + 2);
-                }
-
-                // Insufficient
-                else
-                    break;
-            }
-
-            // Body
-            else if (state == body)
-            {
-                const size_t remaining = get_content(msg).size() - body_read;
-                const size_t available = std::min(remaining, buf.size());
-                std::copy(begin(buf), begin(buf) + available, begin(get_content(msg)) + body_read);
-                buf.erase(begin(buf), begin(buf) + available);
-                body_read += available;
-                    
-                if (get_content(msg).size() == body_read)
-                    state = done;
             }
         }
 
         return state == done;
     }
 
-    template class parser<request>;
-    template class parser<response>;
+    bool parser_response::parse(response& resp, std::string& buf, std::error_code& ec)
+    {
+        using namespace details;
+
+        while (!buf.empty() && !ec && state != done)
+        {
+            // Check buffer size
+            if (buf.size() > max_header_size)
+                ec = make_error_code(http_read_header_line_too_big);
+
+            else
+            {
+                parsing_result res{parse_incomplete};
+
+                switch(state)
+                {
+                case parser_response::version:      res = parse_version(resp, buf, ec,      [&]{state = parser_response::status_code;});    break;
+                case parser_response::status_code:  res = parse_status_code(resp, buf, ec,  [&]{state = parser_response::status_msg;});     break;
+                case parser_response::status_msg:   res = parse_status_msg(resp, buf, ec,   [&]{state = parser_response::header_line;});    break;
+                case parser_response::header_line:  res = parse_header(resp, buf, ec,       [&]{state = !resp.content_str.empty() ? parser_response::body : parser_response::done;}); break;
+                case parser_response::body:         res = parse_body(resp, buf, body_read, ec, [&]{state = parser_response::done;});        break;
+                case parser_response::done: break;
+                }  
+                
+                if (res == parse_incomplete)
+                    break;
+            }
+        }
+
+        return state == done;
+    }
 
 //----------------------------------------------------------------------------------------------------------------
 
