@@ -23,11 +23,17 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size)
     const auto current_data = view.data();
     const auto current_buf  = view.buffer();
     ec_msg = ec ? ec.message() : "";
-    
+
     view.resize(10);
     view.clear();
     msg.assign(data, data+size);
     buf.clear();
     http::serialize_websocket_message(boost::asio::buffer(msg), http::WS_OPCODE_DATA_BINARY, true, buf);
+    buf.clear();
+    http::serialize_websocket_message(boost::asio::buffer(msg), http::WS_OPCODE_DATA_BINARY, false, buf);
+    buf.clear();
+    http::serialize_websocket_message(boost::asio::buffer(msg), http::WS_OPCODE_DATA_TEXT, true, buf);
+    buf.clear();
+    http::serialize_websocket_message(boost::asio::buffer(msg), http::WS_OPCODE_DATA_TEXT, false, buf);
     return 0;
 }
