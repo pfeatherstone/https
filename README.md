@@ -1,6 +1,7 @@
 ![Ubuntu](https://github.com/pfeatherstone/https/actions/workflows/ubuntu.yml/badge.svg)
 ![MacOS](https://github.com/pfeatherstone/https/actions/workflows/macos.yml/badge.svg)
 ![Windows](https://github.com/pfeatherstone/https/actions/workflows/windows.yml/badge.svg)
+[![codecov](https://codecov.io/gh/pfeatherstone/https/branch/main/graph/badge.svg)](https://codecov.io/gh/pfeatherstone/https)
 
 # https
 

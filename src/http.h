@@ -621,16 +621,18 @@ namespace http
 
 //----------------------------------------------------------------------------------------------------------------
 
-    template<class Message>
-    class parser
+    struct parser_request
     {
-    private:
-        static constexpr std::size_t max_header_size = 8192;
-        enum {method, uri, version, status_code, status_msg, header_line, body, done} state{std::is_same_v<Message, request> ? method : version};
+        enum {method, uri, version, header_line, body, done} state{method};
         size_t body_read{0};
+        bool parse(request& msg, std::string& buf, std::error_code& ec);
+    };
 
-    public:
-        bool parse(Message& req, std::string& buf, std::error_code& ec);
+    struct parser_response
+    {
+        enum {version, status_code, status_msg, header_line, body, done} state{version};
+        size_t body_read{0};
+        bool parse(response& msg, std::string& buf, std::error_code& ec);
     };
 
 //----------------------------------------------------------------------------------------------------------------

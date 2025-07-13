@@ -1,0 +1,67 @@
+name: Coverage
+on:
+  push:
+    branches:
+      - '**'
+  pull_request:
+    branches:
+      - '**'
+
+jobs:
+  build-test:
+    runs-on: ubuntu-24.04
+    name: ubuntu-coverage
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y ninja-build cmake clang llvm
+
+      - name: Run CMake configuration and build
+        run: |
+          cmake examples -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DCMAKE_C_COMPILER=clang \
+            -DCMAKE_CXX_COMPILER=clang++ \
+            -DHTTP_BUILD_FUZZERS=ON
+          cmake --build build --target request_parser response_parser websocket_parser sha1 base64 --parallel
+
+      - name: Extract corpus
+        run: |
+          tar -zxvf examples/fuzz/seeds.tgz
+          
+      - name: Run fuzzers
+        run: |
+          mkdir -p /tmp/corpus
+          LLVM_PROFILE_FILE="request.profraw"   ./build/request_parser    /tmp/corpus/ seeds/request_parser/    -max_total_time=30
+          LLVM_PROFILE_FILE="response.profraw"  ./build/response_parser   /tmp/corpus/ seeds/response_parser/   -max_total_time=30
+          LLVM_PROFILE_FILE="websocket.profraw" ./build/websocket_parser  /tmp/corpus/ seeds/websocket_parser/  -max_total_time=30
+          LLVM_PROFILE_FILE="sha1.profraw"      ./build/sha1 -max_total_time=30
+          LLVM_PROFILE_FILE="base64.profraw"    ./build/base64 -max_total_time=30
+
+      - name: Generate coverage report
+        run: |
+          llvm-profdata merge -o coverage.profdata \
+            request.profraw \
+            response.profraw \
+            websocket.profraw \
+            sha1.profraw \
+            base64.profraw
+          llvm-cov export -format=lcov -instr-profile coverage.profdata \
+            -object ./build/request_parser \
+            -object ./build/response_parser \
+            -object ./build/websocket_parser \
+            -object ./build/sha1 \
+            -object ./build/base64 \
+            -sources ./src \
+            > coverage_${{github.sha}}.txt
+  
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          slug: pfeatherstone/https
+          files: coverage_${{github.sha}}.txt
