@@ -24,22 +24,22 @@ static std::string openssl_base64_encode(const size_t ndata, const uint8_t* data
     return encoded;
 }
 
-static std::vector<uint8_t> openssl_base64_decode(std::string_view data)
-{
-    BIO* b64 = BIO_new(BIO_f_base64());
-    BIO* bio = BIO_new_mem_buf(data.data(), data.size());
-    BIO_set_flags(b64, BIO_FLAGS_BASE64_NO_NL);
-    bio = BIO_push(b64, bio);
+// static std::vector<uint8_t> openssl_base64_decode(std::string_view data)
+// {
+//     BIO* b64 = BIO_new(BIO_f_base64());
+//     BIO* bio = BIO_new_mem_buf(data.data(), data.size());
+//     BIO_set_flags(b64, BIO_FLAGS_BASE64_NO_NL);
+//     bio = BIO_push(b64, bio);
 
-    std::vector<uint8_t> output(data.size(), 0); // Base64 expands by 4/3, so input is always >= output
-    int decoded_len = BIO_read(bio, output.data(), output.size());
-    if (decoded_len < 0)
-        fprintf(stderr, "Failed to base64 decode data\n");
+//     std::vector<uint8_t> output(data.size(), 0); // Base64 expands by 4/3, so input is always >= output
+//     int decoded_len = BIO_read(bio, output.data(), output.size());
+//     if (decoded_len < 0)
+//         fprintf(stderr, "Failed to base64 decode data\n");
 
-    output.resize(std::max(decoded_len, 0));
-    BIO_free_all(bio);
-    return output;
-}
+//     output.resize(std::max(decoded_len, 0));
+//     BIO_free_all(bio);
+//     return output;
+// }
 
 TEST_SUITE("[BASE64]")
 {
