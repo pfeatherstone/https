@@ -9,6 +9,10 @@ if(POLICY CMP0135)
    cmake_policy(SET CMP0135 OLD)
 endif()
 
+# Generator expressions
+set(IS_WIN32      "$<BOOL:${WIN32}>")
+set(IS_NOT_WIN32  "$<NOT:${IS_WIN32}>")
+
 # Deps
 include(FetchContent)
 include(CMakeDependentOption)
@@ -33,7 +37,7 @@ target_include_directories(http PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../src)
 target_link_libraries(http PUBLIC OpenSSL::SSL OpenSSL::Crypto Boost::asio)
 target_compile_options(http 
   PRIVATE $<$<BOOL:${HTTP_BUILD_FUZZERS}>:-fprofile-instr-generate -fcoverage-mapping>
-  PUBLIC -Wall)
+  PUBLIC  $<${IS_NOT_WIN32}:-Wall>)
 
 # Examples
 function(add_example target_name)
