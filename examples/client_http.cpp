@@ -75,6 +75,7 @@ awaitable_strand http_session(std::string_view host)
         co_await boost::asio::async_connect(sock.next_layer(), co_await resolver.async_resolve(host, "80"), boost::asio::cancel_after(5s, deferred));
         ret = co_await http::async_http_write(sock, req);
         ret = co_await http::async_http_read(sock,  resp);
+        (void)ret;
 
         // Print response
         print_header(resp);
