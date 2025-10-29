@@ -41,6 +41,7 @@ namespace fs = std::filesystem;
 
 struct websocket
 {
+    virtual ~websocket() = default;
     virtual void send(const char* data, std::size_t ndata, bool is_text) = 0;
 };
 
@@ -300,7 +301,7 @@ awaitable_strand websocket_session (
     try 
     {
         // Handshake
-        size_t ret = co_await http::async_ws_accept(state->sock, req);
+        std::ignore = co_await http::async_ws_accept(state->sock, req);
         handlers.on_open(state);
 
         for(;;)
@@ -344,7 +345,7 @@ awaitable_strand http_session (
         for (;;)
         {
             // Read request
-            size_t res = co_await http::async_http_read(sock, req);
+            std::ignore = co_await http::async_http_read(sock, req);
 
             // Manage websocket
             if (req.is_websocket_req())
@@ -363,7 +364,7 @@ awaitable_strand http_session (
             handle_request(options.docroot, options.username, options.password, options.http_handlers, req, resp);
 
             // Write response
-            res = co_await async_http_write(sock, resp);
+            std::ignore = co_await async_http_write(sock, resp);
 
             // Shutdown if necessary
             if(!keep_alive)
