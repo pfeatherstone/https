@@ -916,7 +916,7 @@ namespace http
                 // Parse
                 else if (state == parse)
                 {
-                    uint16_t reason{};
+                    // uint16_t reason{};
                     switch(code)
                     {
                     case WS_OPCODE_DATA_TEXT:
