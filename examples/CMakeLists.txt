@@ -31,7 +31,9 @@ add_library(http ${CMAKE_CURRENT_SOURCE_DIR}/../src/http.cpp)
 target_compile_features(http PUBLIC cxx_std_17)
 target_include_directories(http PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../src)
 target_link_libraries(http PUBLIC OpenSSL::SSL OpenSSL::Crypto Boost::asio)
-target_compile_options(http PRIVATE $<$<BOOL:${HTTP_BUILD_FUZZERS}>:-fprofile-instr-generate -fcoverage-mapping>)
+target_compile_options(http 
+  PRIVATE $<$<BOOL:${HTTP_BUILD_FUZZERS}>:-fprofile-instr-generate -fcoverage-mapping>
+  PUBLIC -Wall)
 
 # Examples
 function(add_example target_name)
