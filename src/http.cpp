@@ -860,7 +860,7 @@ namespace http
         const auto index = find_header_private(fields, f);
         if (index == -1) return std::nullopt;
         const auto off = offsets[index];
-        const auto end = (index+1) < fields.size() ? offsets[index+1] : buf.size();
+        const auto end = (index+1) < (int)fields.size() ? offsets[index+1] : buf.size();
         return std::string_view(&buf[off], end-off);
     }
 
@@ -877,7 +877,7 @@ namespace http
         const auto index = find_header_private(fields, f);
         if (index == -1) return;
         const auto off = offsets[index];
-        const auto end = (index+1) < fields.size() ? offsets[index+1] : buf.size();
+        const auto end = (index+1) < (int)fields.size() ? offsets[index+1] : buf.size();
         const auto len = end-off;
         for (size_t i = index+1 ; i < offsets.size() ; ++i)
             offsets[i] -= len;
@@ -891,7 +891,7 @@ namespace http
         const auto index = find_header_private(fields, f);
         if (index == -1) return add(f, value);
         const auto off = offsets[index];
-        const auto end = (index+1) < fields.size() ? offsets[index+1] : buf.size();
+        const auto end = (index+1) < (int)fields.size() ? offsets[index+1] : buf.size();
         const auto len = end-off;
         buf.erase(begin(buf) + off, begin(buf) + end);
         buf.insert(begin(buf) + off, begin(value), std::end(value));
@@ -1258,9 +1258,10 @@ namespace http
                     if (field == unknown_field)
                         ec = make_error_code(http_read_header_unsupported_field);
 
-                    else
+                    else {
                         msg.headers.add(field, value);
                         res = parse_ok;
+                    }
                 }
             }
 
