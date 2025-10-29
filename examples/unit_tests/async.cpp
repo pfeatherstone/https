@@ -313,7 +313,6 @@ TEST_SUITE("[ASYNC]")
 
                 const auto run_client = [&](yield_context yield)
                 {
-                    constexpr bool is_server{false};
                     boost::asio::async_connect(client.lowest_layer(), resolver.async_resolve("localhost", "6667", yield), yield);
                     http::async_ws_handshake(client, "localhost", "/ws", yield);
                     http::async_ws_write(client, boost::asio::buffer(data), false, yield);
