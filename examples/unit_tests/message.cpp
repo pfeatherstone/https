@@ -116,6 +116,7 @@ TEST_SUITE("[MESSAGE]")
             http::request req;
             std::error_code ec{};
             bool finished = http::parser_request{}.parse(req, bad_req, ec);
+            REQUIRE(!finished);
             REQUIRE(ec == http::http_read_bad_method);
         }
         
@@ -131,6 +132,7 @@ TEST_SUITE("[MESSAGE]")
             http::request req;
             std::error_code ec{};
             bool finished = http::parser_request{}.parse(req, bad_req, ec);
+            REQUIRE(!finished);
             REQUIRE(ec == http::http_read_unsupported_http_version);
         }
 
@@ -146,6 +148,7 @@ TEST_SUITE("[MESSAGE]")
             http::request req;
             std::error_code ec{};
             bool finished = http::parser_request{}.parse(req, bad_req, ec);
+            REQUIRE(!finished);
             REQUIRE(ec == http::http_read_unsupported_http_version);
         }
 
@@ -161,6 +164,7 @@ TEST_SUITE("[MESSAGE]")
             http::request req;
             std::error_code ec{};
             bool finished = http::parser_request{}.parse(req, bad_req, ec);
+            REQUIRE(!finished);
             REQUIRE(ec == http::http_read_unsupported_http_version);
         }
 
@@ -176,6 +180,7 @@ TEST_SUITE("[MESSAGE]")
             http::request req;
             std::error_code ec{};
             bool finished = http::parser_request{}.parse(req, bad_req, ec);
+            REQUIRE(!finished);
             REQUIRE(ec == http::http_read_header_kv_delimiter_not_found);
         }
 
@@ -192,6 +197,7 @@ TEST_SUITE("[MESSAGE]")
             http::request req;
             std::error_code ec{};
             bool finished = http::parser_request{}.parse(req, bad_req, ec);
+            REQUIRE(!finished);
             REQUIRE(ec == http::http_read_header_unsupported_field); // (It should be "Host:" not "Host :")
         }
 
@@ -259,6 +265,7 @@ TEST_SUITE("[MESSAGE]")
             http::response reply;
             std::error_code ec{};
             bool finished = http::parser_response{}.parse(reply, bad_reply, ec);
+            REQUIRE(!finished);
             REQUIRE(ec == http::http_read_unsupported_http_version);
         }
 
@@ -273,6 +280,7 @@ TEST_SUITE("[MESSAGE]")
             http::response reply;
             std::error_code ec{};
             bool finished = http::parser_response{}.parse(reply, bad_reply, ec);
+            REQUIRE(!finished);
             REQUIRE(ec == http::http_read_unsupported_http_version);
         }
 
@@ -287,6 +295,7 @@ TEST_SUITE("[MESSAGE]")
             http::response reply;
             std::error_code ec{};
             bool finished = http::parser_response{}.parse(reply, bad_reply, ec);
+            REQUIRE(!finished);
             REQUIRE(ec == http::http_read_unsupported_http_version);
         }
 
@@ -301,6 +310,7 @@ TEST_SUITE("[MESSAGE]")
             http::response reply;
             std::error_code ec{};
             bool finished = http::parser_response{}.parse(reply, bad_reply, ec);
+            REQUIRE(!finished);
             REQUIRE(ec == http::http_read_bad_status);
         }
 
@@ -315,6 +325,7 @@ TEST_SUITE("[MESSAGE]")
             http::response reply;
             std::error_code ec{};
             bool finished = http::parser_response{}.parse(reply, bad_reply, ec);
+            REQUIRE(!finished);
             REQUIRE(ec == http::http_read_header_kv_delimiter_not_found);
         }
 
@@ -329,6 +340,7 @@ TEST_SUITE("[MESSAGE]")
             http::response reply;
             std::error_code ec{};
             bool finished = http::parser_response{}.parse(reply, bad_reply, ec);
+            REQUIRE(!finished);
             REQUIRE(ec == http::http_read_header_unsupported_field);
         }
 
@@ -343,6 +355,7 @@ TEST_SUITE("[MESSAGE]")
             http::response reply;
             std::error_code ec{};
             bool finished = http::parser_response{}.parse(reply, bad_reply, ec);
+            REQUIRE(!finished);
             REQUIRE(ec == http::http_read_header_unsupported_field);
         }
 
